@@ -6,7 +6,7 @@ import PIL.Image
 import io
 import time
 import random
-from keep_alive import keep_alive
+from keep_alive import keep_alive  # 確保你有 keep_alive.py
 
 # ==========================================
 # 1. 初始設定 & 金鑰讀取
@@ -15,7 +15,7 @@ load_dotenv()
 DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 
-# 【專屬設定】指定的主人 ID (請確認已填入正確 ID)
+# 【專屬設定】指定的主人 ID (你提供的 ID)
 YOUR_ADMIN_ID = 495464747848695808
 
 if not DISCORD_TOKEN or not GEMINI_API_KEY:
@@ -24,7 +24,7 @@ if not DISCORD_TOKEN or not GEMINI_API_KEY:
 genai.configure(api_key=GEMINI_API_KEY)
 
 # ==========================================
-# 2. 模型選擇
+# 2. 模型選擇 (自動避開額度限制)
 # ==========================================
 try:
     model_name = 'gemini-2.5-flash-lite'
@@ -37,6 +37,7 @@ except Exception as e:
 # ==========================================
 # 3. 機器人權限設定
 # ==========================================
+# ⚠️ 務必去 Developer Portal 開啟 Server Members & Message Content Intents
 intents = discord.Intents.all()
 client = discord.Client(intents=intents)
 
@@ -45,37 +46,43 @@ user_cooldowns = {}
 @client.event
 async def on_ready():
     print(f'------------------------------------------')
-    print(f'🍯 蜂蜜水 (Honey Water) 優化版上線！')
+    print(f'🍯 蜂蜜水 (Honey Water) 上線！(含錯誤回報)')
     print(f'👑 認證主人 ID: {YOUR_ADMIN_ID}')
     print(f'------------------------------------------')
 
 @client.event
 async def on_message(message):
+    # 1. 絕對不回覆機器人自己
     if message.author == client.user:
         return
 
     # =================================================================
-    # 【功能 A】管理員指令 !say
+    # 【功能 A】管理員指令 !say (優先處理)
     # =================================================================
     if message.content.startswith('!say '):
+        # 權限檢查：指定 ID 或 管理員
         is_owner = (message.author.id == YOUR_ADMIN_ID)
         is_admin = message.author.guild_permissions.administrator
         
         if is_owner or is_admin:
             say_content = message.content[5:]
+            # 先說話
             if say_content:
                 await message.channel.send(say_content)
+            # 再嘗試刪除指令
             try:
                 await message.delete()
-            except Exception:
-                pass
+            except Exception as e:
+                # 這裡報錯印在後台就好，不用回傳頻道
+                print(f"⚠️ 無法刪除指令: {e}")
             return
         else:
             return
 
     # =================================================================
-    # 【功能 B】一般對話處理
+    # 【功能 B】AI 聊天邏輯
     # =================================================================
+    # 判斷是否需要回應 (Tag 或 回覆機器人)
     is_mentioned = client.user in message.mentions
     is_reply_to_me = False
     
@@ -92,7 +99,7 @@ async def on_message(message):
     if not is_mentioned and not is_reply_to_me:
         return
 
-    # 冷卻檢查
+    # 冷卻檢查 (3秒)
     user_id = message.author.id
     current_time = time.time()
     if user_id in user_cooldowns and (current_time - user_cooldowns[user_id] < 3):
@@ -103,9 +110,10 @@ async def on_message(message):
         return 
     user_cooldowns[user_id] = current_time
 
+    # 開始處理 AI 回應
     try:
         async with message.channel.typing():
-            # A. 圖片處理
+            # A. 圖片讀取
             image_input = None
             if message.attachments:
                 for attachment in message.attachments:
@@ -125,7 +133,7 @@ async def on_message(message):
             elif not user_text:
                 user_text = "(使用者戳了你一下)"
 
-            # C. 讀取歷史訊息
+            # C. 讀取歷史訊息 (讀空氣)
             chat_history = []
             try:
                 async for msg in message.channel.history(limit=7):
@@ -137,15 +145,15 @@ async def on_message(message):
             
             chat_history_str = "\n".join(chat_history)
             
-            # D. 表符處理 (限制數量以免 Prompt 過長)
+            # D. 群組表符 (限制前 20 個)
             emoji_list_str = ""
             if message.guild and message.guild.emojis:
-                # 這裡會抓取正確的 Discord 格式 <a:name:id>
                 emoji_list_str = " ".join([str(e) for e in message.guild.emojis[:20]])
 
-            # E. 設定人設 Prompt (大幅修正)
+            # E. 設定人設 Prompt (最佳化版)
             persona = f"""
             你現在的身分是「蜂蜜水」，Discord 群組的吉祥物。
+            創造者是「[超時空蜜蜂] XiaoYuan(小俊ouo)」。
             
             【群組專屬表情符號】：
             {emoji_list_str}
@@ -169,17 +177,36 @@ async def on_message(message):
             full_prompt = f"{persona}\n\n使用者 ({message.author.display_name}) 說：「{user_text}」。請以「蜂蜜水」的身分回應："
 
             if image_input:
+                # 圖片模式
                 response = model.generate_content([f"{persona}\n\n(使用者傳了圖片) 評論這張圖：", image_input])
             else:
+                # 文字模式
                 response = model.generate_content(full_prompt)
             
-            # G. 回覆 (使用 reply，但關閉 mention，避免一直 Tag 很吵)
+            # G. 回覆 (使用 reply，不 Tag 作者)
             await message.reply(response.text, mention_author=False)
 
+    # =================================================================
+    # 【錯誤處理】這裡會把錯誤回傳到 Discord 頻道
+    # =================================================================
     except Exception as e:
-        print(f"❌ 錯誤: {e}")
-        # 不再回傳錯誤訊息到頻道，避免干擾體驗
+        error_msg = str(e)
+        print(f"❌ 發生錯誤: {error_msg}")
 
+        # 針對常見錯誤給予友善回應
+        if "429" in error_msg or "quota" in error_msg.lower():
+            await message.channel.send("哎唷～腦袋運轉過度（額度用完），讓我冷卻一下好不好？🥺💦")
+        elif "safety" in error_msg.lower() or "blocked" in error_msg.lower():
+            await message.channel.send("嗯...這個話題有點太刺激，我先跳過好了！🫣")
+        elif "PrivilegedIntentsRequired" in error_msg:
+             await message.channel.send("❌ 系統錯誤：請去 Discord Developer Portal 開啟所有 Intents 權限！")
+        else:
+            # 回報其他未知錯誤 (方便你除錯)
+            await message.channel.send(f"嗚嗚，線路怪怪的，快叫 [超時空蜜蜂] XiaoYuan(小俊ouo) 來修我～😭\n錯誤代碼：`{error_msg}`")
+
+# ==========================================
+# 4. 啟動
+# ==========================================
 if __name__ == "__main__":
     keep_alive()
     client.run(DISCORD_TOKEN)
