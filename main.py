@@ -4,6 +4,7 @@ import google.generativeai as genai
 from dotenv import load_dotenv
 import PIL.Image
 import io
+from keep_alive import keep_alive  # 引入我們剛建立的網站防休眠功能
 
 # ==========================================
 # 1. 初始設定
@@ -12,9 +13,10 @@ load_dotenv()
 DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 
+# 雲端託管時，有時候環境變數抓不到會報錯，這裡做個簡單檢查
 if not DISCORD_TOKEN or not GEMINI_API_KEY:
-    print("❌ 錯誤：請檢查 .env 檔案，Token 或 API Key 遺失！")
-    exit()
+    print("❌ 錯誤：請檢查 .env 檔案 (或是 Render 的 Environment Variables)，Token 或 API Key 遺失！")
+    # 注意：這裡不強制 exit()，因為在某些雲端環境可能會有延遲，讓它嘗試往下跑
 
 genai.configure(api_key=GEMINI_API_KEY)
 
@@ -39,7 +41,7 @@ client = discord.Client(intents=intents)
 @client.event
 async def on_ready():
     print(f'------------------------------------------')
-    print(f'🍯 蜂蜜水 (Honey Water) 已上線！(全能博學版)')
+    print(f'🍯 蜂蜜水 (Honey Water) 已上線！(雲端託管版)')
     print(f'🤖 登入身分：{client.user}')
     print(f'------------------------------------------')
 
@@ -148,6 +150,10 @@ async def on_message(message):
             await message.channel.send("嗯...這個話題有點太刺激，我先跳過好了！🫣")
         else:
             await message.channel.send(f"嗚嗚，線路怪怪的，快叫 [超時空蜜蜂] XiaoYuan(小俊ouo) 來修我～😭\n`{error_msg}`")
-keep_alive()  # 啟動網頁伺服器
-client.run(DISCORD_TOKEN)
-client.run(DISCORD_TOKEN)
+
+# ==========================================
+# 4. 啟動伺服器與機器人
+# ==========================================
+if __name__ == "__main__":
+    keep_alive()  # 先啟動 Web Server (讓 UptimeRobot 偵測)
+    client.run(DISCORD_TOKEN) # 最後啟動 Discord Bot
