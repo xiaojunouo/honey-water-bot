@@ -32,12 +32,12 @@ genai.configure(api_key=GEMINI_API_KEY)
 # 2. 模型選擇
 # ==========================================
 try:
-    model_name = 'gemini-1.5-flash'
+    model_name = 'gemini-2.5-flash-lite'
     model = genai.GenerativeModel(model_name)
     print(f"✅ 成功載入模型：{model_name}")
 except Exception as e:
     print(f"⚠️ 1.5-flash 載入失敗，切換為 gemini-pro。原因：{e}")
-    model = genai.GenerativeModel('gemini-pro')
+    model = genai.GenerativeModel('gemini-2.5-flash')
 
 # ==========================================
 # 3. 機器人權限設定
@@ -206,3 +206,4 @@ async def on_message(message):
 if __name__ == "__main__":
     keep_alive()
     client.run(DISCORD_TOKEN)
+
