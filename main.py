@@ -4,7 +4,8 @@ import google.generativeai as genai
 from dotenv import load_dotenv
 import PIL.Image
 import io
-import time  # 【新增】引入時間套件
+import time
+import random
 from keep_alive import keep_alive
 
 # ==========================================
@@ -31,69 +32,65 @@ except Exception as e:
     model = genai.GenerativeModel('gemini-2.5-flash')
 
 # ==========================================
-# 3. Discord 機器人設定 & 冷卻紀錄
+# 3. Discord 機器人設定
 # ==========================================
 intents = discord.Intents.default()
 intents.message_content = True
 client = discord.Client(intents=intents)
 
-# 【新增】用來記錄每個人「最後一次說話」的時間
-# 格式：{ 使用者ID: 時間戳記, 使用者ID: 時間戳記... }
 user_cooldowns = {}
 
 @client.event
 async def on_ready():
     print(f'------------------------------------------')
-    print(f'🍯 蜂蜜水 (Honey Water) 已上線！(防刷屏版)')
+    print(f'🍯 蜂蜜水 已上線！(防雙重回應 + 引用回覆版)')
     print(f'🤖 登入身分：{client.user}')
     print(f'------------------------------------------')
 
 @client.event
 async def on_message(message):
+    # 1. 絕對不回覆機器人自己 (防止無限迴圈)
     if message.author == client.user:
         return
 
-    # 判斷是否回覆或 Tag
+    # 2. 判斷是否需要回應 (Tag 或 回覆機器人)
     is_mentioned = client.user in message.mentions
     is_reply_to_me = False
     previous_context = ""
 
+    # 檢查是否為「回覆」訊息
     if message.reference:
         try:
             ref_msg = message.reference.resolved
             if ref_msg is None:
                 ref_msg = await message.channel.fetch_message(message.reference.message_id)
+            # 如果是回覆給機器人本人
             if ref_msg.author == client.user:
                 is_reply_to_me = True
-                previous_context = ref_msg.content
+                previous_context = ref_msg.content # 抓取上下文記憶
         except Exception:
             pass
 
-    # 如果沒有 Tag 也沒有回覆，就無視
+    # 如果既沒 Tag 也沒回覆機器人，直接結束，不做任何事
     if not is_mentioned and not is_reply_to_me:
         return
 
-    # =================================================================
-    # 【新增】冷卻時間檢查 (Cooldown Check)
-    # =================================================================
+    # 3. 冷卻時間檢查 (防止刷屏)
     user_id = message.author.id
     current_time = time.time()
-    cooldown_seconds = 3  # 設定冷卻秒數 (這裡設 3 秒)
-
-    # 如果這個人之前說過話，而且距離現在還不到 3 秒
+    cooldown_seconds = 3
+    
     if user_id in user_cooldowns and (current_time - user_cooldowns[user_id] < cooldown_seconds):
-        print(f"⏳ {message.author.name} 講太快了，觸發冷卻。")
-        # 選項：給個沙漏表情符號，提示使用者「等一下」
+        # 選項：給個表情但不回話，節省資源
         try:
             await message.add_reaction('⏳') 
         except:
             pass
-        return  # 直接結束程式，不呼叫 API
+        return 
     
-    # 更新這個人的最後說話時間
     user_cooldowns[user_id] = current_time
-    # =================================================================
 
+    # 4. 生成回應
     try:
         async with message.channel.typing():
             # A. 圖片處理
@@ -109,40 +106,46 @@ async def on_message(message):
                         except Exception:
                             pass
 
-            # B. 文字與上下文
+            # B. 文字處理
             user_text = message.content.replace(f'<@{client.user.id}>', '').strip()
-            
             if not user_text and image_input:
                 user_text = "(這是一張圖片，請評論它)"
             elif not user_text:
                 user_text = "(使用者戳了你一下)"
 
+            # C. 上下文記憶 (如果有的話)
             context_prompt = ""
             if is_reply_to_me and previous_context:
                 context_prompt = f"\n(背景資訊：使用者正在回覆你之前說的這句話：「{previous_context}」)"
 
-            # C. 設定「蜂蜜水」人設
-            persona = """
+            # D. 自動抓取群組表符
+            emoji_list_str = ""
+            if message.guild:
+                emojis = message.guild.emojis[:30]
+                if emojis:
+                    emoji_list_str = " ".join([str(e) for e in emojis])
+
+            # E. 設定人設
+            persona = f"""
             你現在的身分是「蜂蜜水」，這個 Discord 群組的專屬吉祥物兼小幫手。
             
             【你的身世設定】：
             1. 創造者是：「[超時空蜜蜂] XiaoYuan(小俊ouo)」。
-            2. 絕對不能提到 Google、Gemini 或大型語言模型。
             
             【你的個性設定】：
             1. 平常活潑、俏皮、喜歡開玩笑。
-            2. 喜歡用年輕人用語（笑死、XD、www、真假），句尾喜歡加「～」或 Emoji (🍯、✨)。
+            2. 喜歡用年輕人用語（笑死、XD、www、真假）。
+            
+            【表情符號使用】：
+            可以使用這些群組專屬表符：{emoji_list_str}
             
             【針對不同話題的反應】：
-            1. **一般閒聊時**：盡量不正經、多吐槽、撒嬌賣萌。
-            2. **遇到知識性問題時**：
-               - **展現聰明的一面！** 不要裝笨，要準確回答問題。
-               - 雖然內容要是正確的，但語氣還是要保持「蜂蜜水」的可愛風格。
-            3. **遇到深奧話題時**：
-               - 切換成「溫柔且有智慧」的模式。
+            1. **一般閒聊時**：不正經、多吐槽、撒嬌。
+            2. **遇到知識性問題時**：展現聰明的一面，不要裝笨。
+            3. **遇到深奧話題時**：切換成溫柔且有智慧的模式。
             """
 
-            # D. 呼叫 API
+            # F. 呼叫 API
             full_prompt = f"{persona}{context_prompt}\n\n使用者說：「{user_text}」。請用蜂蜜水的語氣回應："
 
             if image_input:
@@ -151,9 +154,11 @@ async def on_message(message):
             else:
                 response = model.generate_content(full_prompt)
             
-            await message.channel.send(response.text)
+            # 【升級】使用 reply() 進行引用回覆
+            # mention_author=False 代表回覆時不會特別 Tag 對方 (避免太吵)，如果你想 Tag 可以改成 True
+            await message.reply(response.text, mention_author=False)
 
-    # 錯誤處理
+    # 5. 錯誤處理
     except Exception as e:
         error_msg = str(e)
         print(f"❌ 發生錯誤: {error_msg}")
@@ -166,7 +171,7 @@ async def on_message(message):
             await message.channel.send(f"嗚嗚，線路怪怪的，快叫 [超時空蜜蜂] XiaoYuan(小俊ouo) 來修我～😭\n`{error_msg}`")
 
 # ==========================================
-# 4. 啟動
+# 6. 啟動
 # ==========================================
 if __name__ == "__main__":
     keep_alive()
