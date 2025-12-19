@@ -6,7 +6,9 @@ import PIL.Image
 import io
 import time
 import random
-from datetime import datetime, timezone, timedelta # 【新增】時間處理套件
+import re
+import sys  # 【新增】用來強制結束程式
+from datetime import datetime, timezone, timedelta
 from keep_alive import keep_alive
 
 # ==========================================
@@ -19,9 +21,9 @@ GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 # 【專屬設定】指定的主人 ID
 YOUR_ADMIN_ID = 495464747848695808
 
-# 【新增】營業時間設定 (24小時制)
-OPEN_HOUR = 8   # 早上 8 點開始
-CLOSE_HOUR = 24 # 晚上 11 點結束 (23:00)
+# 【營業時間】(24小時制, 台灣時間)
+OPEN_HOUR = 8
+CLOSE_HOUR = 23
 
 if not DISCORD_TOKEN or not GEMINI_API_KEY:
     print("❌ 錯誤：請檢查 .env 檔案，Token 或 API Key 遺失！")
@@ -50,7 +52,7 @@ user_cooldowns = {}
 @client.event
 async def on_ready():
     print(f'------------------------------------------')
-    print(f'🍯 蜂蜜水 上線！(營業時間: {OPEN_HOUR}:00 ~ {CLOSE_HOUR}:00)')
+    print(f'🍯 蜂蜜水 上線中！(含關機指令 + 完整報錯)')
     print(f'👑 認證主人 ID: {YOUR_ADMIN_ID}')
     print(f'------------------------------------------')
 
@@ -59,14 +61,29 @@ async def on_message(message):
     if message.author == client.user:
         return
 
+    # 檢查權限 (主人或管理員)
+    is_owner = (message.author.id == YOUR_ADMIN_ID)
+    is_admin = message.author.guild_permissions.administrator
+    has_permission = is_owner or is_admin
+
     # =================================================================
-    # 【功能 A】管理員指令 !say (不受時間限制，隨時可用)
+    # 【功能 A】管理員指令區 (!say / !shutdown)
     # =================================================================
+    
+    # 1. 遠端關機指令
+    if message.content == '!shutdown':
+        if has_permission:
+            print("🛑 收到關機指令，準備下線...")
+            await message.channel.send("蜂蜜水要下班去睡覺囉... 大家晚安！💤 (系統關機中)")
+            await client.close() # 關閉 Discord 連線
+            sys.exit(0) # 強制終止 Python 程式
+        else:
+            await message.channel.send("❌ 你沒有權限叫我去睡覺！")
+            return
+
+    # 2. 代說指令
     if message.content.startswith('!say '):
-        is_owner = (message.author.id == YOUR_ADMIN_ID)
-        is_admin = message.author.guild_permissions.administrator
-        
-        if is_owner or is_admin:
+        if has_permission:
             say_content = message.content[5:]
             if say_content:
                 await message.channel.send(say_content)
@@ -79,27 +96,20 @@ async def on_message(message):
             return
 
     # =================================================================
-    # 【功能 B】營業時間檢查 (Time Check)
+    # 【功能 B】營業時間檢查
     # =================================================================
-    # 1. 取得現在的台灣時間
-    tz = timezone(timedelta(hours=8)) # UTC+8
+    tz = timezone(timedelta(hours=8))
     now = datetime.now(tz)
     current_hour = now.hour
 
-    # 2. 檢查是否在營業時間內
-    # 邏輯：如果 現在時間 小於 開門時間 或者 現在時間 大於等於 打烊時間 -> 睡覺
     if current_hour < OPEN_HOUR or current_hour >= CLOSE_HOUR:
-        # 如果有人在非營業時間 Tag 機器人，偶爾回個睡覺訊息 (避免完全死機沒反應)
-        # 但不要每次都回，設個 10% 機率回覆，才不會半夜被洗版
+        # 非營業時間，10% 機率回覆睡著
         if client.user in message.mentions and random.random() < 0.1:
-            await message.channel.send("呼...呼...💤 (蜂蜜水睡著了，明天早上再來吧...)")
-        
-        # 這裡直接 return，不讓程式往下執行 AI 邏輯
+            await message.channel.send("呼...呼...💤 (蜂蜜水睡著了...)")
         return 
-    # =================================================================
 
     # =================================================================
-    # 【功能 C】AI 聊天邏輯 (只有營業時間內會執行到這裡)
+    # 【功能 C】AI 聊天邏輯
     # =================================================================
     is_mentioned = client.user in message.mentions
     is_reply_to_me = False
@@ -130,6 +140,7 @@ async def on_message(message):
 
     try:
         async with message.channel.typing():
+            # A. 圖片
             image_input = None
             if message.attachments:
                 for attachment in message.attachments:
@@ -142,12 +153,14 @@ async def on_message(message):
                         except Exception:
                             pass
 
+            # B. 文字
             user_text = message.content.replace(f'<@{client.user.id}>', '').strip()
             if not user_text and image_input:
                 user_text = "(這是一張圖片，請評論它)"
             elif not user_text:
                 user_text = "(使用者戳了你一下)"
 
+            # C. 讀空氣
             chat_history = []
             try:
                 async for msg in message.channel.history(limit=7):
@@ -159,24 +172,23 @@ async def on_message(message):
             
             chat_history_str = "\n".join(chat_history)
             
+            # D. 表符
             emoji_list_str = ""
             if message.guild and message.guild.emojis:
                 emoji_list_str = " ".join([str(e) for e in message.guild.emojis[:20]])
 
+            # E. Prompt
             persona = f"""
             你現在的身分是「蜂蜜水」，Discord 群組的吉祥物。
-            創造者是「[超時空蜜蜂] XiaoYuan(小俊ouo)」。
             
             【群組專屬表情符號】：
             {emoji_list_str}
             
-            【對話規則】：
-            1. **禁止亂 Tag 人**：專注回覆這則訊息，不要標記不在場的人。
-            2. **表情符號**：放在句尾，每句最多 1~2 個。
-            3. **排版**：長句請適當換行。
-            4. **個性**：
-               - 閒聊：活潑俏皮。
-               - 知識/深奧：聰明溫柔。
+            【絕對指令】：
+            1. **禁止 Tag 任何人**：絕對不要在回應中輸出 `<@ID>` 格式。叫名字就好。
+            2. **表情符號**：每句話結尾最多放 1~2 個表符。
+            3. **排版**：長句請換行。
+            4. **個性**：活潑、俏皮、聰明。
             
             【最近聊天氣氛參考】：
             {chat_history_str}
@@ -189,11 +201,24 @@ async def on_message(message):
             else:
                 response = model.generate_content(full_prompt)
             
-            await message.reply(response.text, mention_author=False)
+            # =================================================================
+            # 【物理防禦】過濾 Tag
+            # =================================================================
+            clean_text = response.text
+            clean_text = re.sub(r'<@!?[0-9]+>', '', clean_text)
+            if not clean_text.strip():
+                clean_text = "🍯✨"
 
+            await message.reply(clean_text, mention_author=False)
+
+    # =================================================================
+    # 【錯誤處理】完整回報版
+    # =================================================================
     except Exception as e:
         error_msg = str(e)
         print(f"❌ 發生錯誤: {error_msg}")
+
+        # 針對常見錯誤給予友善回應
         if "429" in error_msg or "quota" in error_msg.lower():
             await message.channel.send("哎唷～腦袋運轉過度（額度用完），讓我冷卻一下好不好？🥺💦")
         elif "safety" in error_msg.lower() or "blocked" in error_msg.lower():
@@ -201,9 +226,9 @@ async def on_message(message):
         elif "PrivilegedIntentsRequired" in error_msg:
              await message.channel.send("❌ 系統錯誤：請去 Discord Developer Portal 開啟所有 Intents 權限！")
         else:
-            await message.channel.send(f"嗚嗚，線路怪怪的，快叫 [超時空蜜蜂] XiaoYuan(小俊ouo) 來修我～😭\n錯誤代碼：`{error_msg}`")
+            # 【這裡已恢復顯示完整錯誤】
+            await message.channel.send(f"嗚嗚，程式出錯了，快叫 [超時空蜜蜂] XiaoYuan(小俊ouo) 來修我～😭\n錯誤訊息：`{error_msg}`")
 
 if __name__ == "__main__":
     keep_alive()
     client.run(DISCORD_TOKEN)
-
