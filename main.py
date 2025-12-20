@@ -10,6 +10,7 @@ import re
 import sys 
 from datetime import datetime, timezone, timedelta
 from keep_alive import keep_alive
+from discord.ext import tasks
 # 引入安全設定模組
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
 
