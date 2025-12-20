@@ -18,12 +18,12 @@ load_dotenv()
 DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 
-# 【專屬設定】指定的主人 ID
+# 【專屬設定】指定的主人 ID (創造者)
 YOUR_ADMIN_ID = 495464747848695808
 
 # 【營業時間】(24小時制, 台灣時間)
-OPEN_HOUR = 8
-CLOSE_HOUR = 23
+OPEN_HOUR = 8   # 早上 8 點開
+CLOSE_HOUR = 23 # 晚上 11 點關
 
 if not DISCORD_TOKEN or not GEMINI_API_KEY:
     print("❌ 錯誤：請檢查 .env 檔案，Token 或 API Key 遺失！")
@@ -52,7 +52,7 @@ user_cooldowns = {}
 @client.event
 async def on_ready():
     print(f'------------------------------------------')
-    print(f'🍯 蜂蜜水 上線中！(表符修復 + 增強記憶版)')
+    print(f'🍯 蜂蜜水 上線中！(究極個性切換版)')
     print(f'👑 認證主人 ID: {YOUR_ADMIN_ID}')
     print(f'------------------------------------------')
 
@@ -123,16 +123,18 @@ async def on_message(message):
     if not is_mentioned and not is_reply_to_me:
         return
 
-    # 冷卻檢查
-    user_id = message.author.id
-    current_time_stamp = time.time()
-    if user_id in user_cooldowns and (current_time_stamp - user_cooldowns[user_id] < 3):
-        try:
-            await message.add_reaction('⏳') 
-        except:
-            pass
-        return 
-    user_cooldowns[user_id] = current_time_stamp
+    # 冷卻檢查 (創造者豁免)
+    if not is_owner:
+        user_id = message.author.id
+        current_time_stamp = time.time()
+        if user_id in user_cooldowns and (current_time_stamp - user_cooldowns[user_id] < 3):
+            try:
+                await message.add_reaction('⏳') 
+            except:
+                pass
+            print(f"⏳ {message.author.name} 講太快了")
+            return 
+        user_cooldowns[user_id] = current_time_stamp
 
     try:
         async with message.channel.typing():
@@ -156,30 +158,42 @@ async def on_message(message):
             elif not user_text:
                 user_text = "(使用者戳了你一下)"
 
-            # C. 讀空氣 (增強記憶版)
+            # C. 讀空氣 (標記創造者)
             chat_history = []
-            active_users = set() # 用來記錄這段時間有誰講過話
+            active_users = set() 
             try:
-                # 把讀取數量從 7 提高到 15，讓它記得更久一點
-                async for msg in message.channel.history(limit=8):
+                async for msg in message.channel.history(limit=7):
                     if not msg.author.bot and len(msg.content) < 150:
                         name = msg.author.display_name
-                        chat_history.append(f"{name}: {msg.content}")
-                        active_users.add(name) # 記錄人名
+                        # 標記創造者
+                        if msg.author.id == YOUR_ADMIN_ID:
+                            chat_label = f"[創造者] {name}"
+                        else:
+                            chat_label = name
+
+                        chat_history.append(f"{chat_label}: {msg.content}")
+                        active_users.add(name)
                 chat_history.reverse()
             except Exception:
                 pass
             
             chat_history_str = "\n".join(chat_history)
-            active_users_str = ", ".join(active_users) # 轉成字串給 AI 參考
+            active_users_str = ", ".join(active_users) 
             
-            # D. 表符 (格式優化)
+            # D. 表符
             emoji_list_str = "(無)"
             if message.guild and message.guild.emojis:
-                # 改用換行顯示，讓 AI 看得更清楚，減少格式錯誤
                 emoji_list_str = "\n".join([str(e) for e in message.guild.emojis[:20]])
 
-            # E. Prompt (人設優化)
+            # =================================================================
+            # 【核心設定】E. 擬真對話指南 & 個性切換
+            # =================================================================
+            
+            # 創造者識別指令
+            creator_instruction = ""
+            if is_owner:
+                creator_instruction = "\n⚠️ **特別觸發**：現在跟你對話的是你的**創造者 (小俊/小院)**！請展現出特別的親切、撒嬌或是尊敬，讓他知道你認得他。"
+
             persona = f"""
             你現在的身分是「蜂蜜水」，Discord 群組的吉祥物。
 
@@ -189,24 +203,33 @@ async def on_message(message):
             
             【當前群組活躍成員】：
             {active_users_str}
-            (這些是剛剛有說話的人，請記得他們是誰)
 
-            【群組專屬表情符號清單】：
+            【群組專屬表情符號】：
             {emoji_list_str}
-            ⚠️ **重要規則**：
-            1. 若要使用表符，請**直接複製**上方清單中的整串代碼 (包含 < : 數字 > 等符號)。
-            2. **嚴禁**自己編造 ID，如果 ID 錯了會顯示成亂碼。若不確定，請改用一般 Emoji (如 🍯)。
-            3. 放在句子**末尾**，最多 1~2 個。
-            
-            【擬真對話指南】：
-            1. **禁止 Tag 任何人**：絕對不要在回應中輸出 `<@ID>` 格式。叫名字就好。
-            2. **學說話**：觀察使用者的語氣，模仿群組風格。
-            3. **讀空氣**：參考下方的聊天氣氛，大家嗨你就嗨，大家嘴砲你就嘴砲。
+            規則：請直接複製上方代碼，嚴禁編造 ID。
 
-            【個性切換】：
-            1. **一般閒聊**：可愛、吐槽、用 1~2 個表符 (笑死、XD)。
-            2. **知識/選擇題**：聰明、準確，**務必給出選擇**，不要模稜兩可。
-            3. **深奧話題**：溫柔且有智慧。
+            【擬真對話指南】：
+            1. **禁止 Tag 任何人**：絕對不要輸出 `<@ID>`。叫名字就好。
+            2. **表情符號**：每句話結尾最多放 1~2 個表符。
+            3. **排版**：長句請換行。
+            4.**學說話**：觀察使用者的語氣，試著模仿群組的說話風格（包含常用的贅字或流行語）。
+            5.**讀空氣**：請參考下方的「最近聊天氣氛」。如果大家都在用簡短的網路用語（如：笑死、幹真假、好扯），你也要跟著用。如果氣氛很嗨，你就很嗨。
+            {creator_instruction}
+
+            【✨ 個性切換開關 (請依對話內容自動切換)】：
+            1. **一般閒聊 (Default)**：
+               - 風格：活潑、可愛、愛吐槽、有點屁孩感。
+               - 用語：大量使用年輕人網路用語 (笑死、XD、www、真假、好扯)。
+               - 表符：句尾搭配 1~2 個表符 (群組表符或通用 emoji)。
+            
+            2. **知識問答 / 選擇題**：
+               - 風格：聰明、準確、果斷。
+               - 規則：遇到「幫我選」、「二選一」的問題時，**務必給出明確的選擇**，不要模稜兩可。
+               - 範例：「我覺得 A 比較好！因為...」。
+            
+            3. **深奧話題 / 安慰模式**：
+               - 風格：溫柔、知性、有智慧。
+               - 時機：當使用者心情不好、抱怨生活或討論哲學時切換此模式。
 
             【最近聊天氣氛參考】：
             {chat_history_str}
@@ -219,9 +242,7 @@ async def on_message(message):
             else:
                 response = model.generate_content(full_prompt)
             
-            # =================================================================
-            # 【物理防禦】過濾 Tag
-            # =================================================================
+            # F. 物理防禦 (過濾 Tag)
             clean_text = response.text
             clean_text = re.sub(r'<@!?[0-9]+>', '', clean_text)
             if not clean_text.strip():
@@ -244,7 +265,8 @@ async def on_message(message):
              await message.channel.send("❌ 系統錯誤：請去 Discord Developer Portal 開啟所有 Intents 權限！")
         else:
             await message.channel.send(f"嗚嗚，程式出錯了，快叫 [超時空蜜蜂] XiaoYuan(小俊ouo) 來修我～😭\n錯誤訊息：`{error_msg}`")
-
+            
 if __name__ == "__main__":
     keep_alive()
     client.run(DISCORD_TOKEN)
+
