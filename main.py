@@ -429,7 +429,7 @@ async def on_message(message):
                         content_resolved = resolve_mentions(msg.content, msg)
                         
                         if msg.author.id == YOUR_ADMIN_ID:
-                            chat_label = f"[超時空蜜蜂] {name}"
+                            chat_label = f"[創造者] {name}"
                         else:
                             chat_label = name
                         
