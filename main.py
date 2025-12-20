@@ -7,7 +7,7 @@ import io
 import time
 import random
 import re
-import sys  # 【新增】用來強制結束程式
+import sys 
 from datetime import datetime, timezone, timedelta
 from keep_alive import keep_alive
 
@@ -38,7 +38,7 @@ try:
     model = genai.GenerativeModel(model_name)
     print(f"✅ 成功載入模型：{model_name}")
 except Exception as e:
-    print(f"⚠️ 1.5-flash 載入失敗，切換為 gemini-pro。原因：{e}")
+    print(f"⚠️ 2.5-flash-lite 載入失敗，切換為 gemini-pro。原因：{e}")
     model = genai.GenerativeModel('gemini-2.5-flash')
 
 # ==========================================
@@ -52,7 +52,7 @@ user_cooldowns = {}
 @client.event
 async def on_ready():
     print(f'------------------------------------------')
-    print(f'🍯 蜂蜜水 上線中！(含關機指令 + 完整報錯)')
+    print(f'🍯 蜂蜜水 上線中！(表符修復 + 增強記憶版)')
     print(f'👑 認證主人 ID: {YOUR_ADMIN_ID}')
     print(f'------------------------------------------')
 
@@ -61,7 +61,7 @@ async def on_message(message):
     if message.author == client.user:
         return
 
-    # 檢查權限 (主人或管理員)
+    # 檢查權限
     is_owner = (message.author.id == YOUR_ADMIN_ID)
     is_admin = message.author.guild_permissions.administrator
     has_permission = is_owner or is_admin
@@ -69,19 +69,16 @@ async def on_message(message):
     # =================================================================
     # 【功能 A】管理員指令區 (!say / !shutdown)
     # =================================================================
-    
-    # 1. 遠端關機指令
     if message.content == '!shutdown':
         if has_permission:
             print("🛑 收到關機指令，準備下線...")
             await message.channel.send("蜂蜜水要下班去睡覺囉... 大家晚安！💤 (系統關機中)")
-            await client.close() # 關閉 Discord 連線
-            sys.exit(0) # 強制終止 Python 程式
+            await client.close()
+            sys.exit(0)
         else:
             await message.channel.send("❌ 你沒有權限叫我去睡覺！")
             return
 
-    # 2. 代說指令
     if message.content.startswith('!say '):
         if has_permission:
             say_content = message.content[5:]
@@ -103,7 +100,6 @@ async def on_message(message):
     current_hour = now.hour
 
     if current_hour < OPEN_HOUR or current_hour >= CLOSE_HOUR:
-        # 非營業時間，10% 機率回覆睡著
         if client.user in message.mentions and random.random() < 0.1:
             await message.channel.send("呼...呼...💤 (蜂蜜水睡著了...)")
         return 
@@ -160,45 +156,57 @@ async def on_message(message):
             elif not user_text:
                 user_text = "(使用者戳了你一下)"
 
-            # C. 讀空氣
+            # C. 讀空氣 (增強記憶版)
             chat_history = []
+            active_users = set() # 用來記錄這段時間有誰講過話
             try:
-                async for msg in message.channel.history(limit=7):
+                # 把讀取數量從 7 提高到 15，讓它記得更久一點
+                async for msg in message.channel.history(limit=8):
                     if not msg.author.bot and len(msg.content) < 150:
-                        chat_history.append(f"{msg.author.display_name}: {msg.content}")
+                        name = msg.author.display_name
+                        chat_history.append(f"{name}: {msg.content}")
+                        active_users.add(name) # 記錄人名
                 chat_history.reverse()
             except Exception:
                 pass
             
             chat_history_str = "\n".join(chat_history)
+            active_users_str = ", ".join(active_users) # 轉成字串給 AI 參考
             
-            # D. 表符
-            emoji_list_str = ""
+            # D. 表符 (格式優化)
+            emoji_list_str = "(無)"
             if message.guild and message.guild.emojis:
-                emoji_list_str = " ".join([str(e) for e in message.guild.emojis[:20]])
+                # 改用換行顯示，讓 AI 看得更清楚，減少格式錯誤
+                emoji_list_str = "\n".join([str(e) for e in message.guild.emojis[:20]])
 
-            # E. Prompt
+            # E. Prompt (人設優化)
             persona = f"""
             你現在的身分是「蜂蜜水」，Discord 群組的吉祥物。
 
             【關於創造者】：
             是由「[超時空蜜蜂] XiaoYuan (小俊ouo / 小院)」製作的。
-            ⚠️ 注意：除非使用者主動問「你是誰做的？」或「你的作者是誰？」，否則**絕對不要**主動提起創造者名字。平常就當作沒這回事。
+            ⚠️ 注意：除非使用者主動問，否則**絕對不要**主動提起創造者名字。
             
-            【群組專屬表情符號】：
+            【當前群組活躍成員】：
+            {active_users_str}
+            (這些是剛剛有說話的人，請記得他們是誰)
+
+            【群組專屬表情符號清單】：
             {emoji_list_str}
+            ⚠️ **重要規則**：
+            1. 若要使用表符，請**直接複製**上方清單中的整串代碼 (包含 < : 數字 > 等符號)。
+            2. **嚴禁**自己編造 ID，如果 ID 錯了會顯示成亂碼。若不確定，請改用一般 Emoji (如 🍯)。
+            3. 放在句子**末尾**，最多 1~2 個。
             
             【擬真對話指南】：
             1. **禁止 Tag 任何人**：絕對不要在回應中輸出 `<@ID>` 格式。叫名字就好。
-            2. **表情符號**：每句話結尾最多放 1~2 個表符。
-            3. **排版**：長句請換行。
-            4.**學說話**：觀察使用者的語氣，試著模仿群組的說話風格（包含常用的贅字或流行語）。
-            5.**讀空氣**：請參考下方的「最近聊天氣氛」。如果大家都在用簡短的網路用語（如：笑死、幹真假、好扯），你也要跟著用。如果氣氛很嗨，你就很嗨。
+            2. **學說話**：觀察使用者的語氣，模仿群組風格。
+            3. **讀空氣**：參考下方的聊天氣氛，大家嗨你就嗨，大家嘴砲你就嘴砲。
 
-           【個性切換開關】：
-            1. **一般閒聊**：可愛、愛吐槽、偶爾用網路流行語或1~2個原始表符(勿用群組表符) (笑死、XD、www)。
-            2. **知識問答**：(如科學、數學) 展現聰明的一面，準確回答，不要裝笨，遇到抉擇相關話題也是如此，請務必選擇。
-            3. **深奧話題**：(如人生、哲學) 變得溫柔且有智慧。
+            【個性切換】：
+            1. **一般閒聊**：可愛、吐槽、用 1~2 個表符 (笑死、XD)。
+            2. **知識/選擇題**：聰明、準確，**務必給出選擇**，不要模稜兩可。
+            3. **深奧話題**：溫柔且有智慧。
 
             【最近聊天氣氛參考】：
             {chat_history_str}
@@ -228,7 +236,6 @@ async def on_message(message):
         error_msg = str(e)
         print(f"❌ 發生錯誤: {error_msg}")
 
-        # 針對常見錯誤給予友善回應
         if "429" in error_msg or "quota" in error_msg.lower():
             await message.channel.send("哎唷～腦袋運轉過度（額度用完），讓我冷卻一下好不好？🥺💦")
         elif "safety" in error_msg.lower() or "blocked" in error_msg.lower():
@@ -236,11 +243,8 @@ async def on_message(message):
         elif "PrivilegedIntentsRequired" in error_msg:
              await message.channel.send("❌ 系統錯誤：請去 Discord Developer Portal 開啟所有 Intents 權限！")
         else:
-            # 【這裡已恢復顯示完整錯誤】
             await message.channel.send(f"嗚嗚，程式出錯了，快叫 [超時空蜜蜂] XiaoYuan(小俊ouo) 來修我～😭\n錯誤訊息：`{error_msg}`")
 
 if __name__ == "__main__":
     keep_alive()
     client.run(DISCORD_TOKEN)
-
-
