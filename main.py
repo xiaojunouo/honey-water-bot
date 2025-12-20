@@ -58,6 +58,7 @@ intents = discord.Intents.all()
 client = discord.Client(intents=intents)
 
 user_cooldowns = {}
+active_autochat_channels = set() # 【新功能】紀錄開啟「主動說話」的頻道 ID
 
 # 【風格資料庫】
 STYLE_PRESETS = {
@@ -104,12 +105,68 @@ def resolve_mentions(text, message):
         text = text.replace(f'<@!{member.id}>', f'@{member.display_name}')
     return text
 
+# ==========================================
+# 4. 【新功能】背景自動聊天任務
+# ==========================================
+# 設定每 10 分鐘檢查一次
+@tasks.loop(minutes=10)
+async def random_chat_task():
+    # 檢查現在是否為營業時間
+    tz = timezone(timedelta(hours=8))
+    now = datetime.now(tz)
+    if now.hour < OPEN_HOUR or now.hour >= CLOSE_HOUR:
+        return # 睡覺時間不說話
+
+    for channel_id in active_autochat_channels:
+        channel = client.get_channel(channel_id)
+        if not channel:
+            continue
+
+        # 🎲 擲骰子：30% 機率會說話 (可以調整 0.3 這個數字)
+        if random.random() > 0.3: 
+            continue 
+
+        try:
+            # 取得該頻道目前的風格
+            current_style_key = channel_styles.get(channel_id, "default")
+            current_style_prompt = STYLE_PRESETS.get(current_style_key, STYLE_PRESETS["default"])
+            
+            # 建構 "主動說話" 的 Prompt
+            prompt = f"""
+            你現在的身分是「蜂蜜水」，Discord 群組的 AI。
+            目前群組有點安靜，你覺得無聊，或者突然想到什麼有趣的事，想主動講一句話。
+
+            【當前風格】：{current_style_prompt}
+            
+            【指令】：
+            1. **請主動開啟一個簡短的話題**，或者吐槽一下現在的狀況。
+            2. 不要太長，就像隨口聊聊。
+            3. 如果是 succubus (色氣大哥哥) 模式，可以講一些稍微挑逗的話。
+            4. 不要 Tag 任何人。
+            """
+            
+            response = model.generate_content(prompt)
+            clean_text = response.text.replace(f'<@{client.user.id}>', '').strip()
+            
+            # 簡單過濾掉它自己嘗試 Tag 人的行為
+            clean_text = re.sub(r'<@!?[0-9]+>', '', clean_text)
+            
+            if clean_text:
+                await channel.send(clean_text)
+                print(f"🔊 主動在頻道 {channel.name} 說話了：{clean_text}")
+
+        except Exception as e:
+            print(f"⚠️ 自動聊天出錯: {e}")
+
 @client.event
 async def on_ready():
     print(f'------------------------------------------')
-    print(f'🍯 蜂蜜水 (完整復刻版) 上線中！')
+    print(f'🍯 蜂蜜水 (完整復刻版+自動聊天) 上線中！')
     print(f'👑 認證主人 ID: {YOUR_ADMIN_ID}')
     print(f'------------------------------------------')
+    # 啟動背景任務
+    if not random_chat_task.is_running():
+        random_chat_task.start()
 
 @client.event
 async def on_message(message):
@@ -122,7 +179,7 @@ async def on_message(message):
     has_permission = is_owner or is_admin
 
     # =================================================================
-    # 【指令區】(!shutdown / !style / !say)
+    # 【指令區】(!shutdown / !style / !say / !autochat)
     # =================================================================
     if message.content == '!shutdown':
         if has_permission:
@@ -133,6 +190,26 @@ async def on_message(message):
         else:
             await message.channel.send("❌ 你沒有權限叫我去睡覺！")
             return
+
+    # 【新指令】開啟/關閉主動說話
+    if message.content == '!autochat on':
+        if has_permission:
+            active_autochat_channels.add(message.channel.id)
+            await message.channel.send("📢 已在這個頻道開啟「主動聊天」模式！我想到什麼就會隨便講講喔～")
+        else:
+            await message.channel.send("❌ 你沒有權限設定這個！")
+        return
+
+    if message.content == '!autochat off':
+        if has_permission:
+            if message.channel.id in active_autochat_channels:
+                active_autochat_channels.remove(message.channel.id)
+                await message.channel.send("🤐 好吧，我不主動吵你們了 (主動聊天已關閉)")
+            else:
+                await message.channel.send("❓ 這個頻道本來就沒開主動聊天呀。")
+        else:
+            await message.channel.send("❌ 你沒有權限設定這個！")
+        return
 
     if message.content.startswith('!style'):
         if has_permission:
@@ -357,4 +434,5 @@ async def on_message(message):
 if __name__ == "__main__":
     keep_alive()
     client.run(DISCORD_TOKEN)
+
 
