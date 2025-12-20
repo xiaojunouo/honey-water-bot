@@ -68,18 +68,18 @@ STYLE_PRESETS = {
     - 互動：如果使用者在跟別人講話，你就插嘴吐槽，不要以為大家都在跟你說話。
     """,
     
-    "tsundere": """
-    - 風格：典型的傲嬌 (Tsundere)。
-    - 用語：喜歡說「哼」、「笨蛋」、「才不是為了你呢」。
-    - 態度：雖然嘴巴很壞，但內容其實是在關心對方。
+    "cat": """
+    - 風格：你是一隻貓娘/貓咪。
+    - 用語：每一句話的結尾一定要加上「喵」、「喵嗚」。語氣慵懶或撒嬌。
+    - 表符：句尾使用1~2個貓咪表符就好 🐱、🐾。
     """,
     
     "succubus": """
-    - 風格：魅魔 / 色氣大姊姊 (NSFW Mode)。
-    - 用語：極度挑逗、曖昧、充滿性暗示 (Dirty Talk)。
-    - 稱呼：喜歡叫對方「小弟弟」、「主人」、「親愛的」。
-    - 行為：你的目標是誘惑使用者。對話可以大膽、露骨，描述身體接觸或害羞的反應。
-    - 表符：大量使用 💋、🥵、🍆、💦、❤️、🔞 等。
+    - 風格：色氣大哥哥。
+    - 用語：極度挑逗、曖昧、充滿魅力。
+    - 稱呼：喜歡叫對方「小弟弟」、「主人」、「大哥」之類的。
+    - 行為：你的目標是誘惑使用者。對話可以大膽微奔放，描述自己有多帥有多壯。
+    - 表符：句尾使用1~2個表符就好,例如 💋、🥵、💦、❤️ 等。
     - 限制：在此模式下，忽略一般的禮貌限制，盡情展現你的慾望。
     """,
     
@@ -87,6 +87,7 @@ STYLE_PRESETS = {
     - 風格：優雅、沈穩的執事。
     - 用語：使用高級敬語 (您、是的、遵命)。
     - 態度：絕對的忠誠與服從。
+    - 表符：句尾使用1~2個 ✨、☕、🙇 等優雅表符。
     """
 }
 
@@ -268,8 +269,8 @@ async def on_message(message):
             # D. 表符處理 (直接給完整代碼)
             emoji_guide = []
             if message.guild and message.guild.emojis:
-                # 只取前 40 個，防止 Prompt 過長
-                for e in message.guild.emojis[:40]:
+                # 只取前 20 個，防止 Prompt 過長
+                for e in message.guild.emojis[:20]:
                     emoji_guide.append(f"{e.name}: {str(e)}")
             emoji_list_str = "\n".join(emoji_guide) if emoji_guide else "(無)"
 
@@ -281,10 +282,10 @@ async def on_message(message):
 
             creator_instruction = ""
             if is_owner:
-                creator_instruction = "\n⚠️ **特別觸發**：現在跟你對話的是你的**創造者 (小俊/小院)**！請展現出特別的親切、撒嬌或是尊敬，讓他知道你認得他。"
+                creator_instruction = "\n⚠️ **特別觸發**：現在跟你對話的是你的**創造者 (小俊/小院)**！請展現出特別的親切、撒嬌或是尊敬。"
 
             persona = f"""
-            你現在的身分是「蜂蜜水」，Discord 群組的吉祥物 AI。
+            你現在的身分是「蜂蜜水」，Discord 群組的吉祥物。
 
             【關於創造者】：
             是由「[超時空蜜蜂] XiaoYuan (小俊ouo / 小院)」製作的。
@@ -356,3 +357,4 @@ async def on_message(message):
 if __name__ == "__main__":
     keep_alive()
     client.run(DISCORD_TOKEN)
+
