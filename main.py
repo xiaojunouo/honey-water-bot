@@ -8,6 +8,8 @@ import time
 import random
 import re
 import sys 
+# 🟢 新增 requests 用於網路搜尋 GIF
+import requests 
 from datetime import datetime, timezone, timedelta
 from keep_alive import keep_alive
 from discord.ext import tasks
@@ -20,6 +22,7 @@ from google.generativeai.types import HarmCategory, HarmBlockThreshold
 load_dotenv()
 DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
+TENOR_API_KEY = os.getenv('TENOR_API_KEY') # 🟢 嘗試讀取 Tenor API Key
 
 # 【專屬設定】指定的主人 ID (創造者)
 YOUR_ADMIN_ID = 495464747848695808
@@ -62,17 +65,15 @@ user_cooldowns = {}
 active_autochat_channels = set() # 紀錄開啟「主動說話」的頻道 ID
 forced_awake = False # 強制清醒模式 (預設關閉)
 
-# 【貓咪後空翻 GIF 資料庫 - 修正版】
-# 使用 Giphy/Imgur 直連網址，確保 Embed 能顯示
-CAT_FLIP_GIFS = [
-    "https://media.giphy.com/media/t2eBr71ACeDC0/giphy.gif",      # 經典後空翻
-    "https://media.giphy.com/media/B3MhGf5hOI3MQ/giphy.gif",      # 忍者貓
-    "https://media.giphy.com/media/12PA1ATw64sTjg02i7/giphy.gif", # 失敗摔倒
-    "https://media.giphy.com/media/mlvseq9yvZhba/giphy.gif",      # 跑酷貓
-    "https://media.giphy.com/media/fBMb70aLZP6pLIX5P6/giphy.gif", # 慢動作跳躍
-    "https://i.imgur.com/e1D25.gif",                               # 經典跳躍
-    "https://media.giphy.com/media/5i7umUqAOYYEw/giphy.gif",      # 驚嚇跳
-    "https://media.giphy.com/media/WXB88TeARFVvi/giphy.gif"       # 旋轉跳
+# 【備用 GIF 清單】(當網路搜尋失敗時使用，確保一定有圖)
+# 這些是網路上精選的貓咪後空翻/跑酷連結，直接貼網址可顯示
+BACKUP_GIFS = [
+    "https://tenor.com/view/cat-yeet-cat-throw-throwing-cat-throwing-gif-17596880703268510995", # 拋擲後空翻
+    "https://tenor.com/view/kitty-cat-kickflip-kickflipcat-wallkick-gif-18629611",              # 牆壁踢
+    "https://tenor.com/view/cat-backflip-gif-26033486",                                         # 經典後空翻
+    "https://tenor.com/view/parkour-cat-jump-gif-13931665",                                     # 跑酷貓
+    "https://tenor.com/view/cat-flip-animal-gif-11624467",                                      # 完美落地
+    "https://media.giphy.com/media/t2eBr71ACeDC0/giphy.gif"                                     # 經典 GIF
 ]
 
 # 【風格資料庫】
@@ -126,6 +127,41 @@ def resolve_mentions(text, message):
         text = text.replace(f'<@{member.id}>', f'@{member.display_name}')
         text = text.replace(f'<@!{member.id}>', f'@{member.display_name}')
     return text
+
+# ==========================================
+# 🟢 新增功能：去 Tenor 真的搜尋 GIF
+# ==========================================
+def get_real_cat_flip_gif():
+    # 搜尋關鍵字：貓 後空翻
+    search_term = "cat backflip"
+    
+    # 1. 檢查是否有 API Key，沒有就用備案
+    if not TENOR_API_KEY:
+        print("⚠️ 未偵測到 TENOR_API_KEY，使用備用清單。")
+        return random.choice(BACKUP_GIFS)
+
+    # 2. 嘗試去 Tenor 搜尋 (Google Tenor API v2)
+    try:
+        # 限制回傳 15 張，隨機挑一張，增加變化性
+        limit = 15
+        url = f"https://tenor.googleapis.com/v2/search?q={search_term}&key={TENOR_API_KEY}&client_key=HoneyWaterBot&limit={limit}&media_filter=gif"
+        
+        r = requests.get(url, timeout=5) # 設定超時避免卡住
+        
+        if r.status_code == 200:
+            results = r.json().get("results")
+            if results:
+                # 隨機選一張
+                selection = random.choice(results)
+                # 取得 GIF 網址
+                gif_url = selection["media_formats"]["gif"]["url"]
+                print(f"🔍 搜尋成功，找到 GIF: {gif_url}")
+                return gif_url
+    except Exception as e:
+        print(f"❌ 網路搜尋 GIF 失敗: {e}")
+    
+    # 3. 如果搜尋失敗，回傳備用清單
+    return random.choice(BACKUP_GIFS)
 
 # ==========================================
 # 4. 背景自動聊天任務
@@ -187,7 +223,7 @@ async def random_chat_task():
 @client.event
 async def on_ready():
     print(f'------------------------------------------')
-    print(f'🍯 蜂蜜水 (GIF修復+完整功能版) 上線中！')
+    print(f'🍯 蜂蜜水 (GIF修復+真實搜尋版) 上線中！')
     print(f'👑 認證主人 ID: {YOUR_ADMIN_ID}')
     print(f'------------------------------------------')
     # 啟動背景任務
@@ -210,20 +246,20 @@ async def on_message(message):
     # 【指令區】(!shutdown / !wakeup / !sleep / !autochat / !style / !flipcat)
     # =================================================================
     
-    # 【功能】貓咪後空翻 (使用 Embed 顯示圖片)
+    # 🟢 修正：貓咪後空翻 (真實搜尋 + 直接網址發送)
     if message.content == '!flipcat':
         try:
-            selected_gif = random.choice(CAT_FLIP_GIFS)
+            # 1. 取得 GIF (搜尋 或 備用)
+            gif_url = get_real_cat_flip_gif()
             
-            # 使用 Embed 物件來包裝圖片
-            embed = discord.Embed(color=0xffb12a) 
-            embed.set_image(url=selected_gif)
+            # 2. 為了確保顯示，不要用 Embed，直接傳送文字網址
+            # Discord 會自動展開 Tenor/Giphy 的網址變成動圖
+            msg_content = f"🐈 喝！看我的後空翻！\n{gif_url}"
             
-            await message.channel.send(content="🐈 喝！看我的後空翻！", embed=embed)
+            await message.channel.send(content=msg_content)
         except Exception as e:
             print(f"GIF 發送失敗: {e}")
-            # 備案：直接傳連結
-            await message.channel.send(f"🐈 喝！看我的後空翻！\n{selected_gif}")
+            await message.channel.send("🐈 (後空翻失敗，扭到腳了...)")
         return
 
     if message.content == '!shutdown':
@@ -428,11 +464,11 @@ async def on_message(message):
             你現在的身分是「蜂蜜水」，Discord 群組的吉祥物。
 
             【關於創造者】：
-            是由「[超時空蜜蜂] XiaoYuan (小俊ouo / 小院)」製作的。
+            是由「[超時空蜜蜂] XiaoYuan (小俊ouo / 小院/ 小俊)」製作的。
             ⚠️ 注意：除非使用者主動問，否則**絕對不要**主動提起創造者名字。
 
             【關於表符 (非常重要)】：
-            使用者希望你使用群組貼圖。**請務必直接複製**以下列表中的完整代碼，嚴禁自己編造 ID：
+            使用者希望你偶爾使用群組貼圖。**請務必直接複製**以下列表中的完整代碼，嚴禁自己編造 ID：
             {emoji_list_str}
             規則：不要只打 :name:，必須是完整的 <:name:12345...> 格式。
 
