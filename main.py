@@ -8,12 +8,10 @@ import time
 import random
 import re
 import sys 
-# 🟢 新增 requests 用於網路搜尋 GIF
 import requests 
 from datetime import datetime, timezone, timedelta
 from keep_alive import keep_alive
 from discord.ext import tasks
-# 引入安全設定模組
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
 
 # ==========================================
@@ -70,10 +68,10 @@ forced_awake = False # 強制清醒模式 (預設關閉)
 BACKUP_GIFS = [
     "https://tenor.com/view/cat-yeet-cat-throw-throwing-cat-throwing-gif-17596880703268510995", # 拋擲後空翻
     "https://tenor.com/view/kitty-cat-kickflip-kickflipcat-wallkick-gif-18629611",              # 牆壁踢
-    "https://tenor.com/view/cat-backflip-gif-26033486",                                         # 經典後空翻
-    "https://tenor.com/view/parkour-cat-jump-gif-13931665",                                     # 跑酷貓
-    "https://tenor.com/view/cat-flip-animal-gif-11624467",                                      # 完美落地
-    "https://media.giphy.com/media/t2eBr71ACeDC0/giphy.gif"                                     # 經典 GIF
+    "https://tenor.com/view/cat-flip-african-americans-question-mark-gif-23659208",                                         # 經典後空翻
+    "https://tenor.com/view/siberian-cat-backflip-cat-backflip-siberian-siberian-cat-gif-26520702",                                     # 跑酷貓
+    "https://tenor.com/view/cat-backflip-cat-cat-flip-flipping-cat-cat-meme-gif-13501639053980264830",                                      # 完美落地
+    "https://tenor.com/view/cat-cat-meme-flop-flopping-cute-gif-3878230546928076249"                                     # 經典 GIF
 ]
 
 # 【風格資料庫】
@@ -431,7 +429,7 @@ async def on_message(message):
                         content_resolved = resolve_mentions(msg.content, msg)
                         
                         if msg.author.id == YOUR_ADMIN_ID:
-                            chat_label = f"[創造者] {name}"
+                            chat_label = f"[超時空蜜蜂] {name}"
                         else:
                             chat_label = name
                         
@@ -465,6 +463,7 @@ async def on_message(message):
 
             【關於創造者】：
             是由「[超時空蜜蜂] XiaoYuan (小俊ouo / 小院/ 小俊)」製作的。
+            如果有人提問小俊是誰，要記得他是創造者。
             ⚠️ 注意：除非使用者主動問，否則**絕對不要**主動提起創造者名字。
 
             【關於表符 (非常重要)】：
@@ -474,7 +473,7 @@ async def on_message(message):
 
             【對話場景】：
             - 目前活躍成員：{active_users_str}
-            - 歷史紀錄中：[創造者] 代表你的主人。
+            - 歷史紀錄中：[超時空蜜蜂] 代表你的主人。
             - 如果使用者說的話包含 `@名字`，代表他在跟那個人說話。你可以插嘴，但要搞清楚對象。
 
             【✨ 當前人格模式】：
