@@ -20,7 +20,7 @@ from google.generativeai.types import HarmCategory, HarmBlockThreshold
 load_dotenv()
 DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
-TENOR_API_KEY = os.getenv('TENOR_API_KEY') # 🟢 嘗試讀取 Tenor API Key
+TENOR_API_KEY = os.getenv('TENOR_API_KEY')
 
 # 【專屬設定】指定的主人 ID (創造者)
 YOUR_ADMIN_ID = 495464747848695808
@@ -66,12 +66,16 @@ forced_awake = False # 強制清醒模式 (預設關閉)
 # 【備用 GIF 清單】(當網路搜尋失敗時使用，確保一定有圖)
 # 這些是網路上精選的貓咪後空翻/跑酷連結，直接貼網址可顯示
 BACKUP_GIFS = [
-    "https://tenor.com/view/cat-yeet-cat-throw-throwing-cat-throwing-gif-17596880703268510995", # 拋擲後空翻
-    "https://tenor.com/view/kitty-cat-kickflip-kickflipcat-wallkick-gif-18629611",              # 牆壁踢
-    "https://tenor.com/view/cat-flip-african-americans-question-mark-gif-23659208",                                         # 經典後空翻
-    "https://tenor.com/view/siberian-cat-backflip-cat-backflip-siberian-siberian-cat-gif-26520702",                                     # 跑酷貓
-    "https://tenor.com/view/cat-backflip-cat-cat-flip-flipping-cat-cat-meme-gif-13501639053980264830",                                      # 完美落地
-    "https://tenor.com/view/cat-cat-meme-flop-flopping-cute-gif-3878230546928076249"                                     # 經典 GIF
+    "https://tenor.com/view/cat-yeet-cat-throw-throwing-cat-throwing-gif-17596880703268510995",
+    "https://tenor.com/view/kitty-cat-kickflip-kickflipcat-wallkick-gif-18629611",
+    "https://tenor.com/view/cat-flip-african-americans-question-mark-gif-23659208",
+    "https://tenor.com/view/siberian-cat-backflip-cat-backflip-siberian-siberian-cat-gif-26520702",
+    "https://tenor.com/view/cat-backflip-cat-cat-flip-flipping-cat-cat-meme-gif-13501639053980264830",
+    "https://tenor.com/view/cat-rolls-rolling-cute-seokjinsos-gif-23586738",
+    "https://tenor.com/view/cat-flip-gif-25408082",
+    "https://tenor.com/view/cat-flip-cat-fly-cat-flip-gif-5371616357638542214",
+    "https://tenor.com/view/cat-flop-flopping-rotate-rotating-gif-4925774148619450231",
+    "https://tenor.com/view/cat-cat-meme-flop-flopping-cute-gif-3878230546928076249"
 ]
 
 # 【風格資料庫】
@@ -84,13 +88,13 @@ STYLE_PRESETS = {
     """,
     
     "cat": """
-    - 風格：你是一隻貓娘/貓咪。
+    - 風格：你是一隻貓娘。
     - 用語：每一句話的結尾一定要加上「喵」、「喵嗚」。語氣慵懶或撒嬌。
     - 表符：句尾使用1~2個貓咪表符就好 🐱、🐾。
     """,
     
     "succubus": """
-    - 風格：色氣大哥哥。
+    - 風格：你是一位有著腹肌的色氣大哥哥。
     - 用語：極度挑逗、曖昧、充滿魅力。
     - 稱呼：喜歡叫對方「小弟弟」、「主人」、「大哥」之類的。
     - 行為：你的目標是誘惑使用者。對話可以大膽微奔放，描述自己有多帥有多壯。
@@ -99,12 +103,19 @@ STYLE_PRESETS = {
     """,
     
     "butler": """
-    - 風格：優雅、沈穩的執事。
+    - 風格：你是一位優雅、沈穩的真人執事。
     - 用語：使用高級敬語 (您、是的、遵命)。
     - 態度：絕對的忠誠與服從。
     - 表符：句尾使用1~2個 ✨、☕、🙇 等優雅表符。
     """,
-    
+        
+    "oldsix": """
+    - 風格：你是來自Five Nights at Freddy's的Freddy Fazbear。
+    - 用語：使用很星爆的感覺,像是星爆阿阿阿阿阿阿阿阿阿。
+    - 態度：像是個好朋友一樣,有時會帶來歡笑。
+    - 表符：句尾使用1~2個 ✨、🧸、👀、🤨、🤯 等星爆表符。
+    """,
+
     "bad": """
     - 風格：你是道地的台灣8+9男生。
     - 用語：每一句話的語氣都很兇狠，態度微差勁，看誰都很不爽。
@@ -140,8 +151,8 @@ def get_real_cat_flip_gif():
 
     # 2. 嘗試去 Tenor 搜尋 (Google Tenor API v2)
     try:
-        # 限制回傳 15 張，隨機挑一張，增加變化性
-        limit = 15
+        # 限制回傳 8 張，隨機挑一張，增加變化性
+        limit = 8
         url = f"https://tenor.googleapis.com/v2/search?q={search_term}&key={TENOR_API_KEY}&client_key=HoneyWaterBot&limit={limit}&media_filter=gif"
         
         r = requests.get(url, timeout=5) # 設定超時避免卡住
@@ -182,8 +193,8 @@ async def random_chat_task():
         if not channel:
             continue
 
-        # 🎲 擲骰子：30% 機率會說話
-        if random.random() > 0.3: 
+        # 🎲 擲骰子：90% 機率會說話
+        if random.random() > 0.9: 
             continue 
 
         try:
@@ -221,7 +232,7 @@ async def random_chat_task():
 @client.event
 async def on_ready():
     print(f'------------------------------------------')
-    print(f'🍯 蜂蜜水 (GIF修復+真實搜尋版) 上線中！')
+    print(f'🍯 蜂蜜水上線中！')
     print(f'👑 認證主人 ID: {YOUR_ADMIN_ID}')
     print(f'------------------------------------------')
     # 啟動背景任務
@@ -330,6 +341,8 @@ async def on_message(message):
                     await message.channel.send("哼...既然你那麼想看我這個樣子...就勉強配合你一下啦！")
                 elif target_style == "bad":
                     await message.channel.send("幹，你說林北是8+9是不是啊😡？")
+                elif target_style == "oldsix":
+                    await message.channel.send("星爆啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊🤯")
                 else:
                     await message.channel.send(f"✨ 風格切換為：**{target_style}**")
             else:
