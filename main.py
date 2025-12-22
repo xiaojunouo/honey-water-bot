@@ -12,6 +12,7 @@ import requests
 from datetime import datetime, timezone, timedelta
 from keep_alive import keep_alive
 from discord.ext import tasks
+from discord import app_commands
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
 
 # ==========================================
@@ -58,6 +59,7 @@ except Exception as e:
 # ==========================================
 intents = discord.Intents.all()
 client = discord.Client(intents=intents)
+tree = app_commands.CommandTree(client)
 
 user_cooldowns = {}
 active_autochat_channels = set() # 紀錄開啟「主動說話」的頻道 ID
@@ -249,11 +251,42 @@ async def random_chat_task():
         except Exception as e:
             print(f"⚠️ 自動聊天出錯: {e}")
 
+# ==========================================
+# ⚡ 斜線指令 (Slash Commands) 區域
+# ==========================================
+@tree.command(name="say", description="借蜂蜜水的嘴巴說話 (無痕模式)")
+@app_commands.describe(message="想要讓機器人說的內容")
+async def slash_say(interaction: discord.Interaction, message: str):
+    
+    # 👇👇👇 新增這段：私訊絕對禁止 (包含主人) 👇👇👇
+    if isinstance(interaction.channel, discord.DMChannel):
+        await interaction.response.send_message("❌ 就算是主人，私訊模式下也不能用借嘴功能喔！(怕會搞混)", ephemeral=True)
+        return
+    # 👆👆👆 新增結束 👆👆👆
+
+    # 檢查權限 (只讓主人用)
+    if interaction.user.id == YOUR_ADMIN_ID:
+        # 1. 機器人代替你在頻道發送訊息
+        await interaction.channel.send(message)
+        
+        # 2. 回覆你一個「只有你才看得到」的確認訊息
+        await interaction.response.send_message("✅ 訊息已成功傳送", ephemeral=True)
+    else:
+        # 如果不是主人
+        await interaction.response.send_message("❌ 你沒有權限使用這張嘴！", ephemeral=True)
+
 @client.event
 async def on_ready():
     print(f'------------------------------------------')
     print(f'🍯 蜂蜜水上線中！(私訊功能 + 完整對話版)')
     print(f'👑 認證主人 ID: {YOUR_ADMIN_ID}')
+
+    try:
+        synced = await tree.sync()
+        print(f"⚡ 已同步 {len(synced)} 個斜線指令")
+    except Exception as e:
+        print(f"⚠️ 指令同步失敗: {e}")
+
     print(f'------------------------------------------')
     if not random_chat_task.is_running():
         random_chat_task.start()
@@ -274,7 +307,7 @@ async def on_message(message):
     if is_dm:
         # 私訊模式下，沒有群組管理員概念，只有主人
         is_admin = False 
-        print(f"📩 [私訊監聽] {message.author.name} (ID:{message.author.id}): {message.content}")
+        print(f"📩 [私訊] {message.author.name} (ID:{message.author.id}): {message.content}")
     else:
         # 群組模式下，檢查管理員權限
         is_admin = message.author.guild_permissions.administrator
@@ -296,7 +329,7 @@ async def on_message(message):
             channel_flipcat_cooldowns[message.channel.id] = current_ts
             try:
                 gif_url = get_real_cat_flip_gif()
-                msg_content = f"🐈 聽到有人想看後空翻？看我的！\n{gif_url}"
+                msg_content = f"🐈 嚇~有人想看後空翻？看我的！\n{gif_url}"
                 await message.channel.send(content=msg_content)
                 if is_dm: print(f"📤 [私訊回覆] 發送了後空翻 GIF")
             except Exception as e:
@@ -386,7 +419,7 @@ async def on_message(message):
             if target_style in STYLE_PRESETS:
                 channel_styles[message.channel.id] = target_style
                 if target_style == "succubus":
-                    await message.channel.send("💋 哎呀...想要做壞壞的事情嗎？準備好了喔...❤️")
+                    await message.channel.send("💋 哎呀...想要做壞壞的事情嗎？準備好了喔...❤️(瑟瑟模式 ON) ")
                 elif target_style == "default":
                     await message.channel.send("👌 回復正常模式！")
                 elif target_style == "bad":
