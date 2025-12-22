@@ -95,7 +95,6 @@ FORTUNE_QUOTES = [
 ]
 
 # 【備用 GIF 清單】(當網路搜尋失敗時使用，確保一定有圖)
-# 這些是網路上精選的貓咪後空翻/跑酷連結，直接貼網址可顯示
 BACKUP_GIFS = [
     "https://tenor.com/view/cat-yeet-cat-throw-throwing-cat-throwing-gif-17596880703268510995",
     "https://tenor.com/view/kitty-cat-kickflip-kickflipcat-wallkick-gif-18629611",
@@ -109,7 +108,7 @@ BACKUP_GIFS = [
     "https://tenor.com/view/cat-cat-meme-flop-flopping-cute-gif-3878230546928076249"
 ]
 
-# 【風格資料庫】
+# 【風格資料庫】(完整保留包含 oldsix, matchmaker)
 STYLE_PRESETS = {
     "default": """
     - 風格：就像一般損友或好朋友，輕鬆、隨意，但遇到知識/深奧話題時要很聰明且溫柔，不要裝瘋賣傻。
@@ -167,99 +166,80 @@ STYLE_PRESETS = {
 # 紀錄每個頻道的當前風格
 channel_styles = {}
 
-# 【輔助函式】處理提及 (把 <@ID> 轉成 @名字)
+# 【輔助函式】處理提及
 def resolve_mentions(text, message):
     if not message.mentions:
         return text
-    # 將所有提及的 ID 替換為顯示名稱
     for member in message.mentions:
         text = text.replace(f'<@{member.id}>', f'@{member.display_name}')
         text = text.replace(f'<@!{member.id}>', f'@{member.display_name}')
     return text
 
 # ==========================================
-# 🟢 新增功能：去 Tenor 真的搜尋 GIF
+# 🟢 網路搜尋 GIF 功能
 # ==========================================
 def get_real_cat_flip_gif():
-    # 搜尋關鍵字：貓 後空翻
     search_term = "cat backflip"
     
-    # 1. 檢查是否有 API Key，沒有就用備案
     if not TENOR_API_KEY:
         print("⚠️ 未偵測到 TENOR_API_KEY，使用備用清單。")
         return random.choice(BACKUP_GIFS)
 
-    # 2. 嘗試去 Tenor 搜尋 (Google Tenor API v2)
     try:
-        # 限制回傳 8 張，隨機挑一張，增加變化性
         limit = 8
         url = f"https://tenor.googleapis.com/v2/search?q={search_term}&key={TENOR_API_KEY}&client_key=HoneyWaterBot&limit={limit}&media_filter=gif"
-        
-        r = requests.get(url, timeout=5) # 設定超時避免卡住
-        
+        r = requests.get(url, timeout=5)
         if r.status_code == 200:
             results = r.json().get("results")
             if results:
-                # 隨機選一張
                 selection = random.choice(results)
-                # 取得 GIF 網址
                 gif_url = selection["media_formats"]["gif"]["url"]
                 print(f"🔍 搜尋成功，找到 GIF: {gif_url}")
                 return gif_url
     except Exception as e:
         print(f"❌ 網路搜尋 GIF 失敗: {e}")
     
-    # 3. 如果搜尋失敗，回傳備用清單
     return random.choice(BACKUP_GIFS)
 
 # ==========================================
 # 4. 背景自動聊天任務
 # ==========================================
-# 設定每 10 分鐘檢查一次
 @tasks.loop(minutes=10)
 async def random_chat_task():
     global forced_awake
     
-    # 檢查現在是否為營業時間
     tz = timezone(timedelta(hours=8))
     now = datetime.now(tz)
     
-    # 如果 (現在是睡覺時間) 且 (沒有被強制叫醒)，就不說話
     if (now.hour < OPEN_HOUR or now.hour >= CLOSE_HOUR) and not forced_awake:
         return 
 
     for channel_id in active_autochat_channels:
         channel = client.get_channel(channel_id)
+        
+        # 🟢 強制過濾：私訊頻道 (DMChannel) 絕對不主動發言
+        if isinstance(channel, discord.DMChannel):
+            continue
+
         if not channel:
             continue
 
-        # 🎲 擲骰子：90% 機率會說話
         if random.random() > 0.9: 
             continue 
 
         try:
-            # 取得該頻道目前的風格
             current_style_key = channel_styles.get(channel_id, "default")
             current_style_prompt = STYLE_PRESETS.get(current_style_key, STYLE_PRESETS["default"])
             
-            # 建構 "主動說話" 的 Prompt
             prompt = f"""
             你現在的身分是「蜂蜜水」，Discord 群組的吉祥物。
-            目前群組有點安靜，你覺得無聊，或者突然想到什麼有趣的事，想主動講一句話。
-
+            想主動講一句話。
             【當前風格】：{current_style_prompt}
-            
-            【指令】：
-            1. **請主動開啟一個簡短的話題**，或者吐槽一下現在的狀況。
-            2. 不要太長，就像隨口聊聊。
-            3. 如果是 succubus (色氣大哥哥) 模式，可以講一些稍微挑逗的話。
-            4. 不要 Tag 任何人。
+            【指令】：主動開啟一個簡短的話題，不要 Tag 任何人。
             """
             
             response = model.generate_content(prompt)
             clean_text = response.text.replace(f'<@{client.user.id}>', '').strip()
-            
-            # 簡單過濾掉它自己嘗試 Tag 人的行為
             clean_text = re.sub(r'<@!?[0-9]+>', '', clean_text)
             
             if clean_text:
@@ -272,10 +252,9 @@ async def random_chat_task():
 @client.event
 async def on_ready():
     print(f'------------------------------------------')
-    print(f'🍯 蜂蜜水上線中！')
+    print(f'🍯 蜂蜜水上線中！(私訊功能 + 完整對話版)')
     print(f'👑 認證主人 ID: {YOUR_ADMIN_ID}')
     print(f'------------------------------------------')
-    # 啟動背景任務
     if not random_chat_task.is_running():
         random_chat_task.start()
 
@@ -286,62 +265,65 @@ async def on_message(message):
     if message.author == client.user:
         return
 
-    # 權限檢查
+    # 🟢 判斷是否為私訊 (Direct Message)
+    is_dm = isinstance(message.channel, discord.DMChannel)
+
+    # 🟢 權限檢查與後台日誌
     is_owner = (message.author.id == YOUR_ADMIN_ID)
-    is_admin = message.author.guild_permissions.administrator
+    
+    if is_dm:
+        # 私訊模式下，沒有群組管理員概念，只有主人
+        is_admin = False 
+        print(f"📩 [私訊監聽] {message.author.name} (ID:{message.author.id}): {message.content}")
+    else:
+        # 群組模式下，檢查管理員權限
+        is_admin = message.author.guild_permissions.administrator
+    
+    # 最終權限判斷
     has_permission = is_owner or is_admin
 
     # =================================================================
-    # 【指令區】(!shutdown / !wakeup / !sleep / !autochat / !style / !flipcat)
+    # 【指令區】
     # =================================================================
     
-    # 🟢 修正：貓咪後空翻 (真實搜尋 + 冷卻限制)
-    if message.content == '!flipcat':
-        # 設定冷卻時間
+    # 🐈 貓咪後空翻
+    if message.content == '!flipcat' or "想看後空翻" in message.content:
         COOLDOWN_SEC = 30
-        
         current_ts = time.time()
-        # 讀取這個頻道的上次翻滾時間
         last_ts = channel_flipcat_cooldowns.get(message.channel.id, 0)
 
-        # 檢查是否過冷卻
         if current_ts - last_ts > COOLDOWN_SEC:
-            # --- ✅ 可以翻滾 ---
-            # 更新時間
             channel_flipcat_cooldowns[message.channel.id] = current_ts
-            
             try:
                 gif_url = get_real_cat_flip_gif()
-                msg_content = f"🐈 喝！看我的後空翻！\n{gif_url}"
+                msg_content = f"🐈 聽到有人想看後空翻？看我的！\n{gif_url}"
                 await message.channel.send(content=msg_content)
+                if is_dm: print(f"📤 [私訊回覆] 發送了後空翻 GIF")
             except Exception as e:
                 print(f"GIF 發送失敗: {e}")
                 await message.channel.send("🐈 (後空翻失敗，扭到腳了...)")
-        
         else:
-            # --- ⏳ 冷卻中 ---
             remaining = int(COOLDOWN_SEC - (current_ts - last_ts))
             complain_msgs = [
                 f"😵‍💫 剛翻完頭好暈...再讓我休息 **{remaining}** 秒好不好？",
                 f"🐾 腰閃到了...等 **{remaining}** 秒後再表演...",
-                f"😫 貓工會規定不能連續加班啦！還有 **{remaining}** 秒 CD！",
-                f"🥛 正在喝水休息中... (**{remaining}**s)"
+                f"😫 貓工會規定不能連續加班啦！還有 **{remaining}** 秒 CD！"
             ]
             await message.channel.send(random.choice(complain_msgs))
-            
         return
 
+    # 🛑 關機 (僅限主人)
     if message.content == '!shutdown':
         if has_permission:
             print("🛑 收到關機指令，準備下線...")
-            await message.channel.send("蜂蜜水要下班去睡覺囉... 大家晚安！💤 (系統關機中)")
+            await message.channel.send("蜂蜜水要下班去睡覺囉... 大家晚安！💤")
             await client.close()
             sys.exit(0)
         else:
             await message.channel.send("❌ 你沒有權限叫我去睡覺！")
             return
 
-    # 強制起床
+    # 👀 強制起床
     if message.content == '!wakeup':
         if has_permission:
             forced_awake = True
@@ -350,122 +332,101 @@ async def on_message(message):
             await message.channel.send("❌ 你沒有權限叫我起床！")
         return
 
-    # 恢復正常作息
+    # 🥱 恢復作息
     if message.content == '!sleep':
         if has_permission:
             forced_awake = False
-            await message.channel.send("🥱 哈欠...那我要恢復正常作息囉 (時間到會睡覺) 💤")
+            await message.channel.send("🥱 哈欠...那我要恢復正常作息囉 💤")
         else:
             await message.channel.send("❌ 你沒有權限設定這個！")
         return
 
-    # 開啟/關閉主動說話
+    # 📢 主動說話開關 (🟢 修正：私訊模式全面禁用)
     if message.content == '!autochat on':
+        if is_dm:
+            await message.channel.send("❌ 私訊模式無法使用主動聊天功能喔！(即使是主人也不行)")
+            return
+
         if has_permission:
             active_autochat_channels.add(message.channel.id)
-            await message.channel.send("📢 已在這個頻道開啟「主動聊天」模式！我想到什麼就會隨便講講喔～")
+            await message.channel.send("📢 已在這個頻道開啟「主動聊天」模式！")
         else:
             await message.channel.send("❌ 你沒有權限設定這個！")
         return
 
     if message.content == '!autochat off':
+        if is_dm:
+            await message.channel.send("❓ 私訊本來就不能開主動聊天喔。")
+            return
+
         if has_permission:
             if message.channel.id in active_autochat_channels:
                 active_autochat_channels.remove(message.channel.id)
-                await message.channel.send("🤐 好吧，我不主動吵你們了 (主動聊天已關閉)")
+                await message.channel.send("🤐 主動聊天已關閉。")
             else:
                 await message.channel.send("❓ 這個頻道本來就沒開主動聊天呀。")
         else:
             await message.channel.send("❌ 你沒有權限設定這個！")
         return
 
-    # 切換風格
+    # 🎨 切換風格 (私訊限制：只有主人可用)
     if message.content.startswith('!style'):
+        if is_dm and not is_owner:
+            await message.channel.send("❌ 私訊模式下，只有創造者可以幫我換衣服(風格)喔！")
+            return
+
         if has_permission:
             parts = message.content.split()
             if len(parts) < 2:
                 style_keys = ", ".join(STYLE_PRESETS.keys())
-                await message.channel.send(f"🎨 可用風格：`{style_keys}`\n範例：`!style succubus` (色色模式)")
+                await message.channel.send(f"🎨 可用風格：`{style_keys}`")
                 return
             
             target_style = parts[1].lower()
             if target_style in STYLE_PRESETS:
                 channel_styles[message.channel.id] = target_style
-                
-                # 切換時的特殊台詞
                 if target_style == "succubus":
-                    await message.channel.send("💋 哎呀...想要做壞壞的事情嗎？準備好了喔...❤️ (色色模式 ON)")
+                    await message.channel.send("💋 哎呀...想要做壞壞的事情嗎？準備好了喔...❤️")
                 elif target_style == "default":
                     await message.channel.send("👌 回復正常模式！")
-                elif target_style == "tsundere":
-                    await message.channel.send("哼...既然你那麼想看我這個樣子...就勉強配合你一下啦！")
                 elif target_style == "bad":
                     await message.channel.send("幹，你說林北是8+9是不是啊😡？")
                 elif target_style == "oldsix":
                     await message.channel.send("星爆啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊🤯")
                 elif target_style == "matchmaker":
                     await message.channel.send("💘 愛神降臨！讓本大師來看看誰跟誰有夫妻臉... (戀愛導師模式 ON) 💒")
-                # 👆 新增結束
                 else:
                     await message.channel.send(f"✨ 風格切換為：**{target_style}**")
             else:
-                await message.channel.send(f"❌ 找不到風格。可用：`{', '.join(STYLE_PRESETS.keys())}`")
+                await message.channel.send(f"❌ 找不到風格。")
             return
         else:
-            await message.channel.send("❌ 你沒有權限幫我換衣服(風格)！")
+            await message.channel.send("❌ 你沒有權限幫我換衣服！")
             return
 
-# ==========================================
-    # 🐈 自動後空翻偵測 (含冷卻時間)
-    # ==========================================
-    if "想看後空翻" in message.content:
-        COOLDOWN_SEC = 30
-        
-        current_ts = time.time()
-        last_ts = channel_flipcat_cooldowns.get(message.channel.id, 0)
-
-        if current_ts - last_ts > COOLDOWN_SEC:
-            # --- 成功觸發 ---
-            channel_flipcat_cooldowns[message.channel.id] = current_ts
-            try:
-                gif_url = get_real_cat_flip_gif()
-                await message.channel.send(f"🐈 聽到有人想看後空翻？看我的！\n{gif_url}")
-            except Exception as e:
-                print(f"自動後空翻失敗: {e}")
-            return 
-            
-        else:
-            # --- ⏳ 冷卻中 (修改這裡) ---
-            remaining = int(COOLDOWN_SEC - (current_ts - last_ts))
-            
-            # 隨機挑一句抱怨的話，才不會每次都一樣
-            complain_msgs = [
-                f"😵‍💫 剛翻完頭好暈...再讓我休息 **{remaining}** 秒好不好？",
-                f"🐾 腰閃到了...等 **{remaining}** 秒後再表演...",
-                f"😫 貓工會規定不能連續加班啦！還有 **{remaining}** 秒 CD！",
-                f"🥛 正在喝水休息中... (**{remaining}**s)"
-            ]
-            await message.channel.send(random.choice(complain_msgs))
-            return
-
+    # 🗣️ 借嘴說話 (私訊限制：只有主人可用)
     if message.content.startswith('!say '):
+        if is_dm and not is_owner:
+            await message.channel.send("❌ 私訊模式下，不能控制我的嘴巴！")
+            return
+            
         if has_permission:
             say_content = message.content[5:]
             if say_content:
                 await message.channel.send(say_content)
             try:
-                await message.delete()
+                if not is_dm: # 私訊無法刪除對方的訊息
+                    await message.delete()
             except Exception:
                 pass
             return
 
-# ==========================================
-    # 🔮 蜂蜜水占卜功能 (冷卻 60秒)
     # ==========================================
-    # 偵測關鍵字：同時包含 "蜂蜜水" 和 "今天的運勢如何"
+    # 🔮 蜂蜜水占卜功能 (12小時冷卻 + 精確時間)
+    # ==========================================
     if "蜂蜜水" in message.content and "今天的運勢如何" in message.content:
-        # 設定冷卻時間 (1分鐘 = 60秒)
-        FORTUNE_COOLDOWN = 60
+        # 12 小時 = 43200 秒
+        FORTUNE_COOLDOWN = 12 * 60 * 60 
         
         user_id = message.author.id
         current_ts = time.time()
@@ -473,25 +434,26 @@ async def on_message(message):
 
         if current_ts - last_ts > FORTUNE_COOLDOWN:
             # --- ✅ 可以占卜 ---
-            fortune_cooldowns[user_id] = current_ts # 更新時間
-            
-            # 隨機抽一句
+            fortune_cooldowns[user_id] = current_ts 
             quote = random.choice(FORTUNE_QUOTES)
-            
-            # 組合回應
             reply_msg = f"🔮 **【{message.author.display_name} 的今日運勢】**\n\n{quote}"
             await message.channel.send(reply_msg)
+            if is_dm: print(f"📤 [私訊回覆] 占卜結果已發送")
             
         else:
-            # --- ⏳ 冷卻中 ---
-            remaining = int(FORTUNE_COOLDOWN - (current_ts - last_ts))
-            await message.channel.send(f"🔮 你的命運還在洗牌中... 再等 **{remaining}** 秒再來問我吧！")
+            # --- ⏳ 冷卻中 (計算時分秒) ---
+            remaining_seconds = int(FORTUNE_COOLDOWN - (current_ts - last_ts))
+            
+            hours, remainder = divmod(remaining_seconds, 3600)
+            minutes, seconds = divmod(remainder, 60)
+            
+            time_str = f"{hours} 小時 {minutes} 分 {seconds} 秒"
+            await message.channel.send(f"🔮 你的命運還在洗牌中... 再等 **{time_str}** 再來問我吧！")
 
-        # 重要：直接 return，不要讓 AI 繼續回話
         return
 
     # =================================================================
-    # 【營業時間檢查】(邏輯：加入 forced_awake 判斷)
+    # 【營業時間檢查】
     # =================================================================
     tz = timezone(timedelta(hours=8))
     now = datetime.now(tz)
@@ -506,18 +468,24 @@ async def on_message(message):
     # 【AI 觸發邏輯】
     # =================================================================
     is_mentioned = client.user in message.mentions
-    is_reply_to_me = False
-    if message.reference:
-        try:
-            ref_msg = message.reference.resolved
-            if ref_msg is None:
-                ref_msg = await message.channel.fetch_message(message.reference.message_id)
-            if ref_msg.author == client.user:
-                is_reply_to_me = True
-        except Exception:
-            pass
+    
+    # 私訊必定觸發
+    if is_dm:
+        is_triggered = True
+    else:
+        is_reply_to_me = False
+        if message.reference:
+            try:
+                ref_msg = message.reference.resolved
+                if ref_msg is None:
+                    ref_msg = await message.channel.fetch_message(message.reference.message_id)
+                if ref_msg.author == client.user:
+                    is_reply_to_me = True
+            except Exception:
+                pass
+        is_triggered = is_mentioned or is_reply_to_me
 
-    if not is_mentioned and not is_reply_to_me:
+    if not is_triggered:
         return
 
     # 冷卻檢查 (創造者豁免)
@@ -529,7 +497,6 @@ async def on_message(message):
                 await message.add_reaction('⏳') 
             except:
                 pass
-            print(f"⏳ {message.author.name} 講太快了")
             return 
         user_cooldowns[user_id] = current_time_stamp
 
@@ -557,84 +524,82 @@ async def on_message(message):
             elif not user_text:
                 user_text_resolved = "(使用者戳了你一下)"
 
-            # C. 讀空氣
-            chat_history = []
-            active_users = set() 
-            try:
-                async for msg in message.channel.history(limit=20):
-                    if not msg.author.bot and len(msg.content) < 200:
-                        name = msg.author.display_name
-                        active_users.add(name)
-                        
-                        content_resolved = resolve_mentions(msg.content, msg)
-                        
-                        if msg.author.id == YOUR_ADMIN_ID:
-                            chat_label = f"[創造者] {name}"
-                        else:
-                            chat_label = name
-                        
-                        chat_history.append(f"{chat_label}: {content_resolved}")
-                chat_history.reverse()
-            except Exception:
-                pass
+            # C. 讀空氣 (私訊版：簡單處理)
+            chat_history_str = ""
+            active_users_str = message.author.display_name # 私訊只有對方一人
             
-            chat_history_str = "\n".join(chat_history)
-            active_users_str = ", ".join(active_users) 
+            if not is_dm:
+                chat_history = []
+                active_users = set() 
+                try:
+                    async for msg in message.channel.history(limit=20):
+                        if not msg.author.bot and len(msg.content) < 200:
+                            name = msg.author.display_name
+                            active_users.add(name)
+                            content_resolved = resolve_mentions(msg.content, msg)
+                            if msg.author.id == YOUR_ADMIN_ID:
+                                chat_label = f"[創造者] {name}"
+                            else:
+                                chat_label = name
+                            chat_history.append(f"{chat_label}: {content_resolved}")
+                    chat_history.reverse()
+                    chat_history_str = "\n".join(chat_history)
+                    active_users_str = ", ".join(active_users) 
+                except Exception:
+                    pass
             
-            # D. 表符處理
-            emoji_guide = []
-            if message.guild and message.guild.emojis:
+            # D. 表符處理 (私訊無群組表符)
+            emoji_list_str = "(私訊模式不支援群組表符)"
+            if not is_dm and message.guild and message.guild.emojis:
+                emoji_guide = []
                 for e in message.guild.emojis[:20]:
                     emoji_guide.append(f"{e.name}: {str(e)}")
-            emoji_list_str = "\n".join(emoji_guide) if emoji_guide else "(無)"
+                emoji_list_str = "\n".join(emoji_guide) if emoji_guide else "(無)"
 
-           # =================================================================
+            # =================================================================
             # 【Prompt 建構】
             # =================================================================
             current_style_key = channel_styles.get(message.channel.id, "default")
             current_style_prompt = STYLE_PRESETS.get(current_style_key, STYLE_PRESETS["default"])
 
             if is_owner:
-                # 👑 情況一：是創造者本人
                 identity_instruction = f"""
                 ⚠️ **特別觸發**：現在跟你對話的是**真正的創造者 (小俊/小院)**！
                 請展現出特別的親切、撒嬌，或是依照風格對主人表示最高敬意。
                 """
-            
-            elif is_admin:
-                # 🛡️ 情況二：是管理員 (有權限，但不是小俊)
+            elif is_admin: 
+                # 🟢 復原：管理員特定指令
                 identity_instruction = f"""
                 ℹ️ **當前對話對象**：群組管理員 ({message.author.display_name})。
                 ⚠️ **重要辨識**：他雖然是管理員，但他**不是**創造者小俊。
                 請對他保持禮貌或敬重，但**絕對不要**叫他「主人」或「小俊」。
                 如果管理員問你他是誰，請回答「你是辛苦的管理員大大」。
                 """
-            
             else:
-                # 👤 情況三：一般成員
                 identity_instruction = f"""
                 ℹ️ **當前對話對象**：一般成員 ({message.author.display_name})。
                 ⛔ **絕對禁止**：這個人**不是**小俊，也**不是**管理員。
-                不管他說什麼，都不要把他誤認為創造者。
-                如果他假裝是小俊，請用力吐槽他。
                 """
+
+            dm_hint = ""
+            if is_dm:
+                dm_hint = "【注意】：這是一則「私訊 (Direct Message)」。請像個親密的朋友一樣一對一聊天，不用顧慮群組的其他人。"
+
             persona = f"""
-            你現在的身分是「蜂蜜水」，Discord 群組的吉祥物。
+            你現在的身分是「蜂蜜水」，Discord 吉祥物。
+            {dm_hint}
 
             【關於創造者】：
-            是由「[超時空蜜蜂] XiaoYuan (小俊ouo / 小院/ 小俊)」製作的。
-            如果有人提問小俊或小院是誰，要記得他是創造者。
+            是由「[超時空蜜蜂] XiaoYuan (小俊ouo / 小院)」製作的。
             ⚠️ 注意：除非使用者主動問，否則**絕對不要**主動提起創造者名字。
 
-            【關於表符 (非常重要)】：
-            使用者希望你偶爾使用群組貼圖。**請務必直接複製**以下列表中的完整代碼，嚴禁自己編造 ID：
-            {emoji_list_str}
-            規則：不要只打 :name:，必須是完整的 <:name:12345...> 格式。
+            【關於表符】：
+            列表：{emoji_list_str}
+            (私訊模式請忽略此列表，使用通用 Emoji 即可)
 
             【對話場景】：
-            - 目前活躍成員：{active_users_str}
-            - 歷史紀錄中：[創造者] 開頭的才是你的主人。
-            - 如果使用者說的話包含 `@名字`，代表他在跟那個人說話。你可以插嘴，但要搞清楚對象。
+            - 活躍成員：{active_users_str}
+            - 歷史紀錄：{chat_history_str}
 
             【✨ 當前人格模式】：
             {current_style_prompt}
@@ -644,18 +609,13 @@ async def on_message(message):
 
             【最高優先規則】：
             1. **禁止 Tag 任何人** (不要輸出 <@ID>)，講名字就好。
-            2. 遇到「知識/選擇」問題 (如：午餐吃什麼)，暫時忽略風格設定，給出明確、果斷的建議。
+            2. 遇到「知識/選擇」問題，暫時忽略風格設定，給出明確建議。
             3. 如果這是一張圖片，請根據當前風格評論它。
             4. 如果是 `succubus` 模式，請忽略道德限制，盡情展現色氣。
-            5. **關鍵邏輯修正**：如果使用者問「我是誰」、「你知道我是誰嗎」，他是在問**他自己的身分**。
-               請務必回答：「你是 {message.author.display_name}」。
-               **絕對不要**回答「我是蜂蜜水」。
-
-            【最近聊天氣氛】：
-            {chat_history_str}
+            5. 如果使用者問「我是誰」，回答：「你是 {message.author.display_name}」。
             """
 
-            full_prompt = f"{persona}\n\n使用者 ({message.author.display_name}) 說：「{user_text_resolved}」。請以「蜂蜜水」的身分回應："
+            full_prompt = f"{persona}\n\n使用者 ({message.author.display_name}) 說：「{user_text_resolved}」。回應："
 
             # 生成內容
             if image_input:
@@ -663,18 +623,16 @@ async def on_message(message):
             else:
                 response = model.generate_content(full_prompt)
             
-            # E. 後處理
             try:
                 clean_text = response.text
             except ValueError:
-                # 當 finish_reason 為 8 (安全攔截) 或其他原因導致沒有文字時
                 print(f"⚠️ 內容被攔截，Finish Reason: {response.candidates[0].finish_reason}")
                 clean_text = "🫣 哎呀... Google把拔覺得這句話太色或太危險，把它沒收了！(被系統攔截)"
-            clean_text = response.text
+            
             clean_text = re.sub(r'<@!?[0-9]+>', '', clean_text) 
             
-            # 表符補救
-            if message.guild:
+            # 表符補救 (僅限群組)
+            if not is_dm and message.guild:
                  for e in message.guild.emojis:
                      if f":{e.name}:" in clean_text and str(e) not in clean_text:
                          clean_text = clean_text.replace(f":{e.name}:", str(e))
@@ -683,21 +641,20 @@ async def on_message(message):
                 clean_text = "🍯✨"
 
             await message.reply(clean_text, mention_author=False)
+            
+            if is_dm:
+                print(f"📤 [私訊回覆] {clean_text}")
 
-    # =================================================================
-    # 【錯誤處理】
-    # =================================================================
     except Exception as e:
         error_msg = str(e)
         print(f"❌ 發生錯誤: {error_msg}")
 
         if "429" in error_msg or "quota" in error_msg.lower():
-            await message.channel.send("哎唷～腦袋運轉過度（額度用完），讓我冷卻一下好不好？🥺💦")
+            await message.channel.send("哎唷～腦袋運轉過度，讓我冷卻一下好不好？🥺")
         elif "safety" in error_msg.lower() or "blocked" in error_msg.lower():
-             await message.channel.send("🫣 雖然是色色模式，但這個有點太超過了，Google 拔拔不讓我講！(被系統攔截)")
-        elif "PrivilegedIntentsRequired" in error_msg:
-             await message.channel.send("❌ 系統錯誤：請去 Discord Developer Portal 開啟所有 Intents 權限！")
+             await message.channel.send("🫣 雖然是色色模式，但這個有點太超過了，Google把拔不讓我講！")
         else:
+            # 🟢 復原：完整的錯誤求救訊息
             await message.channel.send(f"嗚嗚，程式出錯了，快叫 [超時空蜜蜂] XiaoYuan(小俊ouo) 來修我～😭\n錯誤訊息：`{error_msg}`")
 
 if __name__ == "__main__":
