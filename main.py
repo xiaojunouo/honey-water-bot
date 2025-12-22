@@ -275,6 +275,44 @@ async def slash_say(interaction: discord.Interaction, message: str):
         # 如果不是主人
         await interaction.response.send_message("❌ 你沒有權限使用這張嘴！", ephemeral=True)
 
+@tree.command(name="flipcat", description="召喚後空翻貓貓 (冷卻 30 秒)")
+async def slash_flipcat(interaction: discord.Interaction):
+    # 設定冷卻時間
+    COOLDOWN_SEC = 30
+    
+    # 取得頻道 ID (私訊或群組皆可)
+    cid = interaction.channel_id
+    current_ts = time.time()
+    last_ts = channel_flipcat_cooldowns.get(cid, 0)
+
+    # 檢查是否過冷卻
+    if current_ts - last_ts > COOLDOWN_SEC:
+        # --- ✅ 可以翻滾 ---
+        channel_flipcat_cooldowns[cid] = current_ts
+        
+        # 因為搜尋 GIF 需要網路時間，先告訴 Discord 「處理中...」
+        await interaction.response.defer()
+        
+        try:
+            # 這裡呼叫原本的搜尋函式 (雖然是同步的，但在簡單應用中通常 OK)
+            gif_url = get_real_cat_flip_gif()
+            msg_content = f"🐈 喝！看我的後空翻！\n{gif_url}"
+            await interaction.followup.send(content=msg_content)
+        except Exception:
+            await interaction.followup.send("🐈 (後空翻失敗，扭到腳了...)")
+    
+    else:
+        # --- ⏳ 冷卻中 ---
+        remaining = int(COOLDOWN_SEC - (current_ts - last_ts))
+        complain_msgs = [
+            f"😵‍💫 剛翻完頭好暈...再讓我休息 **{remaining}** 秒好不好？",
+            f"🐾 腰閃到了...等 **{remaining}** 秒後再表演...",
+            f"😫 貓工會規定不能連續加班啦！還有 **{remaining}** 秒 CD！",
+            f"🥛 正在喝水休息中... (**{remaining}**s)"
+        ]
+        # 回覆抱怨訊息 (公開顯示，讓大家知道還在冷卻)
+        await interaction.response.send_message(random.choice(complain_msgs))
+
 @client.event
 async def on_ready():
     print(f'------------------------------------------')
@@ -319,8 +357,8 @@ async def on_message(message):
     # 【指令區】
     # =================================================================
     
-    # 🐈 貓咪後空翻
-    if message.content == '!flipcat' or "想看後空翻" in message.content:
+    # 🐈 貓咪後空翻 (僅保留關鍵字偵測)
+    if "想看後空翻" in message.content:
         COOLDOWN_SEC = 30
         current_ts = time.time()
         last_ts = channel_flipcat_cooldowns.get(message.channel.id, 0)
@@ -329,7 +367,7 @@ async def on_message(message):
             channel_flipcat_cooldowns[message.channel.id] = current_ts
             try:
                 gif_url = get_real_cat_flip_gif()
-                msg_content = f"🐈 嚇~有人想看後空翻？看我的！\n{gif_url}"
+                msg_content = f"🐈 聽到有人想看後空翻？看我的！\n{gif_url}"
                 await message.channel.send(content=msg_content)
                 if is_dm: print(f"📤 [私訊回覆] 發送了後空翻 GIF")
             except Exception as e:
