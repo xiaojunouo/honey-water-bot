@@ -69,31 +69,37 @@ channel_flipcat_cooldowns = {}
 fortune_cooldowns = {} # 占卜冷卻
 
 # ==========================================
-# 💾 風格記憶系統 (JSON 存檔)
+# 💾 風格記憶系統 (Render 安全容錯版)
 # ==========================================
 STYLES_FILE = "styles.json"
-channel_styles = {} # 預設為空，稍後讀取
+channel_styles = {} 
 
 def load_styles():
-    """從檔案讀取風格設定"""
+    """從檔案讀取風格設定 (失敗則忽略)"""
+    # 檢查檔案是否存在
     if os.path.exists(STYLES_FILE):
         try:
             with open(STYLES_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                # JSON key 是字串，必須轉回 int (頻道 ID)
+                print(f"📂 成功讀取風格設定")
+                # 轉換 key 為 int
                 return {int(k): v for k, v in data.items()}
         except Exception as e:
-            print(f"⚠️ 讀取風格設定失敗: {e}")
-    return {}
+            print(f"⚠️ 讀取設定檔失敗 (將使用預設值): {e}")
+            return {}
+    else:
+        print("ℹ️ 找不到設定檔 (將使用預設值)")
+        return {}
 
 def save_styles():
-    """將目前風格寫入檔案"""
+    """將目前風格寫入檔案 (失敗則忽略，防止 Render 崩潰)"""
     try:
         with open(STYLES_FILE, "w", encoding="utf-8") as f:
             json.dump(channel_styles, f, ensure_ascii=False, indent=4)
-            # print("💾 風格設定已儲存")
+        # print("💾 風格設定已儲存")
     except Exception as e:
-        print(f"❌ 儲存風格設定失敗: {e}")
+        # 這裡是最重要的修改：捕捉錯誤但不讓程式崩潰
+        print(f"⚠️ 無法存檔 (Render 環境通常為唯讀，重開機後風格會重置): {e}")
 
 # 初始化：載入舊設定
 channel_styles = load_styles()
