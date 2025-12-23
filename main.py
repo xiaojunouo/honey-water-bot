@@ -397,6 +397,7 @@ async def slash_fortune(interaction: discord.Interaction):
         minutes, seconds = divmod(remainder, 60)
         time_str = f"{hours} 小時 {minutes} 分 {seconds} 秒"
         await interaction.response.send_message(f"🔮 你的命運還在洗牌中... 再等 **{time_str}** 再來問我吧！", ephemeral=True)
+        
 # ==========================================
 # 🟢 新增：管理功能 (起床/睡覺/主動說話)
 # ==========================================
