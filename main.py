@@ -9,6 +9,7 @@ import random
 import re
 import sys 
 import requests 
+import json 
 from datetime import datetime, timezone, timedelta
 from keep_alive import keep_alive
 from discord.ext import tasks
@@ -34,7 +35,7 @@ if not DISCORD_TOKEN or not GEMINI_API_KEY:
     print("❌ 錯誤：請檢查 .env 檔案，Token 或 API Key 遺失！")
 
 # ==========================================
-# 2. 模型設定 (解除安全護欄 BLOCK_NONE)
+# 2-1 模型設定 (解除安全護欄 BLOCK_NONE)
 # ==========================================
 genai.configure(api_key=GEMINI_API_KEY)
 
@@ -55,7 +56,37 @@ except Exception as e:
     model = genai.GenerativeModel('gemini-2.5-flash', safety_settings=safety_settings)
 
 # ==========================================
-# 3. 機器人權限與風格設定
+# 💾 2-2 風格記憶系統 (JSON 存檔)
+# ==========================================
+STYLES_FILE = "styles.json"
+channel_styles = {} # 預設為空，稍後讀取
+
+def load_styles():
+    """從檔案讀取風格設定"""
+    if os.path.exists(STYLES_FILE):
+        try:
+            with open(STYLES_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                # JSON key 是字串，必須轉回 int (頻道 ID)
+                return {int(k): v for k, v in data.items()}
+        except Exception as e:
+            print(f"⚠️ 讀取風格設定失敗: {e}")
+    return {}
+
+def save_styles():
+    """將目前風格寫入檔案"""
+    try:
+        with open(STYLES_FILE, "w", encoding="utf-8") as f:
+            json.dump(channel_styles, f, ensure_ascii=False, indent=4)
+            # print("💾 風格設定已儲存")
+    except Exception as e:
+        print(f"❌ 儲存風格設定失敗: {e}")
+
+# 初始化：載入舊設定
+channel_styles = load_styles()
+
+# ==========================================
+# 3. 資料庫 (台詞與清單)
 # ==========================================
 intents = discord.Intents.all()
 client = discord.Client(intents=intents)
@@ -326,7 +357,9 @@ async def slash_style(interaction: discord.Interaction, style: app_commands.Choi
         target_style = style.value
         # 使用 channel_id 來記錄風格
         channel_styles[interaction.channel_id] = target_style
-        
+    #存檔
+        save_styles()
+
         # 回應
         if target_style == "succubus":
             await interaction.response.send_message("💋 哎呀...想要做壞壞的事情嗎？準備好了喔...❤️(瑟瑟模式 ON)")
