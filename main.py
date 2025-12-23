@@ -393,7 +393,7 @@ async def slash_ship(interaction: discord.Interaction, user2: discord.User, user
 
     # 建構 Prompt 請 AI 講評
     prompt = f"""
-    你現在的身分是「蜂蜜水」。
+    你現在的身分是「蜂蜜水」，Discord 吉祥物。
     【當前風格】：{current_style_prompt}
     
     【任務】：
@@ -431,7 +431,7 @@ async def slash_judge(interaction: discord.Interaction, target: discord.User):
     current_style_prompt = STYLE_PRESETS.get(current_style_key, STYLE_PRESETS["default"])
 
     prompt = f"""
-    你現在的身分是「蜂蜜水」。
+    你現在的身分是「蜂蜜水」，Discord 吉祥物。
     【當前風格】：{current_style_prompt}
     
     【任務】：
@@ -471,7 +471,7 @@ async def slash_pick(interaction: discord.Interaction, options: str):
     current_style_prompt = STYLE_PRESETS.get(current_style_key, STYLE_PRESETS["default"])
 
     prompt = f"""
-    你現在的身分是「蜂蜜水」。
+    你現在的身分是「蜂蜜水」，Discord 吉祥物。
     【當前風格】：{current_style_prompt}
     
     【任務】：
