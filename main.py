@@ -807,8 +807,13 @@ async def on_message(message):
             # 🟢 修正：防呆攔截機制 (避免 API 阻擋導致程式崩潰)
             try:
                 clean_text = response.text
-            except ValueError:
-                print(f"⚠️ 內容被攔截，Finish Reason: {response.candidates[0].finish_reason}")
+            except Exception: # 改用 Exception 捕捉所有錯誤
+                # 只有在 candidates 真的存在時，才去讀取攔截原因
+                if response.candidates:
+                    print(f"⚠️ 內容被攔截，Finish Reason: {response.candidates[0].finish_reason}")
+                else:
+                    print("⚠️ 內容生成失敗 (API 回傳空清單，可能是嚴重違規或伺服器錯誤)")
+                
                 clean_text = "🫣 哎呀... Google把拔覺得這句話太色或太危險，把它沒收了！(被系統攔截)"
             
             clean_text = re.sub(r'<@!?[0-9]+>', '', clean_text) 
