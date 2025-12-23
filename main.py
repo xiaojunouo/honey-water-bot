@@ -258,11 +258,9 @@ async def random_chat_task():
 @app_commands.describe(message="想要讓機器人說的內容")
 async def slash_say(interaction: discord.Interaction, message: str):
     
-    # 👇👇👇 新增這段：私訊絕對禁止 (包含主人) 👇👇👇
     if isinstance(interaction.channel, discord.DMChannel):
         await interaction.response.send_message("❌ 就算是主人，私訊模式下也不能用借嘴功能喔！(怕會搞混)", ephemeral=True)
         return
-    # 👆👆👆 新增結束 👆👆👆
 
     # 檢查權限 (只讓主人用)
     if interaction.user.id == YOUR_ADMIN_ID:
@@ -273,7 +271,66 @@ async def slash_say(interaction: discord.Interaction, message: str):
         await interaction.response.send_message("✅ 訊息已成功傳送", ephemeral=True)
     else:
         # 如果不是主人
-        await interaction.response.send_message("❌ 你沒有權限使用這張嘴！", ephemeral=True)
+        await interaction.response.send_message("❌ 你沒有權限使用我的嘴巴喔~", ephemeral=True)
+
+# 🟢 新增：/style 斜線指令版 (權限：私訊限主人 / 群組限管理員)
+@tree.command(name="style", description="幫蜂蜜水改變語氣風格")
+@app_commands.choices(style=[
+    app_commands.Choice(name="預設 (損友)", value="default"),
+    app_commands.Choice(name="貓娘", value="cat"),
+    app_commands.Choice(name="色氣大哥哥", value="succubus"),
+    app_commands.Choice(name="執事", value="butler"),
+    app_commands.Choice(name="星爆老六 (Freddy)", value="oldsix"),
+    app_commands.Choice(name="月老 (戀愛導師)", value="matchmaker"),
+    app_commands.Choice(name="8+9", value="bad"),
+])
+async def slash_style(interaction: discord.Interaction, style: app_commands.Choice[str]):
+    
+    is_owner = (interaction.user.id == YOUR_ADMIN_ID)
+    is_dm = isinstance(interaction.channel, discord.DMChannel)
+    
+    # 權限判斷
+    has_permission = False
+    
+    if is_dm:
+        # 私訊：只有主人可以
+        if is_owner:
+            has_permission = True
+        else:
+            await interaction.response.send_message("❌ 私訊模式下，只有小俊才可以幫我換風格喔！", ephemeral=True)
+            return
+    else:
+        # 群組：主人 或 管理員
+        is_admin = interaction.user.guild_permissions.administrator
+        if is_owner or is_admin:
+            has_permission = True
+        else:
+            await interaction.response.send_message("❌ 你沒有權限幫我換風格！", ephemeral=True)
+            return
+
+    # 執行切換
+    if has_permission:
+        target_style = style.value
+        # 使用 channel_id 來記錄風格
+        channel_styles[interaction.channel_id] = target_style
+        
+        # 回應
+        if target_style == "succubus":
+            await interaction.response.send_message("💋 哎呀...想要做壞壞的事情嗎？準備好了喔...❤️(瑟瑟模式 ON)")
+        elif target_style == "default":
+            await interaction.response.send_message("👌 回復正常模式！")
+        elif target_style == "cat":
+            await interaction.response.send_message("喵嗚～變身完畢！🐱")
+        elif target_style == "butler":
+            await interaction.response.send_message("是的，主人。風格已切換為執事模式。✨")
+        elif target_style == "bad":
+            await interaction.response.send_message("幹，你說林北是8+9是不是啊😡？")
+        elif target_style == "oldsix":
+            await interaction.response.send_message("星爆啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊🤯")
+        elif target_style == "matchmaker":
+            await interaction.response.send_message("💘 愛神降臨！讓本大師來看看誰跟誰有夫妻臉... (戀愛導師模式 ON) 💒")
+        else:
+            await interaction.response.send_message(f"✨ 風格切換為：**{target_style}**")
 
 @tree.command(name="flipcat", description="召喚後空翻貓貓 (冷卻 30 秒)")
 async def slash_flipcat(interaction: discord.Interaction):
@@ -308,7 +365,7 @@ async def slash_flipcat(interaction: discord.Interaction):
             f"😵‍💫 剛翻完頭好暈...再讓我休息 **{remaining}** 秒好不好？",
             f"🐾 腰閃到了...等 **{remaining}** 秒後再表演...",
             f"😫 貓工會規定不能連續加班啦！還有 **{remaining}** 秒 CD！",
-            f"🥛 正在喝水休息中... (**{remaining}**s)"
+            f"🥛 貓咪正在喝水休息中... (**{remaining}**s)"
         ]
         # 回覆抱怨訊息 (公開顯示，讓大家知道還在冷卻)
         await interaction.response.send_message(random.choice(complain_msgs))
@@ -316,7 +373,7 @@ async def slash_flipcat(interaction: discord.Interaction):
 @client.event
 async def on_ready():
     print(f'------------------------------------------')
-    print(f'🍯 蜂蜜水上線中！(私訊功能 + 完整對話版)')
+    print(f'🍯 蜂蜜水上線中！(2025/12/23更新版)')
     print(f'👑 認證主人 ID: {YOUR_ADMIN_ID}')
 
     try:
@@ -440,57 +497,16 @@ async def on_message(message):
             await message.channel.send("❌ 你沒有權限設定這個！")
         return
 
-    # 🎨 切換風格 (私訊限制：只有主人可用)
+    # (原本的 !style 文字指令已刪除，請改用 /style)
+    # 這裡保留 !style 的錯誤提示，以防舊習慣
     if message.content.startswith('!style'):
-        if is_dm and not is_owner:
-            await message.channel.send("❌ 私訊模式下，只有創造者可以幫我換衣服(風格)喔！")
-            return
+        await message.channel.send("💡 現在請改用斜線指令 `/style` 來換衣服喔！(有選單可以用)")
+        return
 
-        if has_permission:
-            parts = message.content.split()
-            if len(parts) < 2:
-                style_keys = ", ".join(STYLE_PRESETS.keys())
-                await message.channel.send(f"🎨 可用風格：`{style_keys}`")
-                return
-            
-            target_style = parts[1].lower()
-            if target_style in STYLE_PRESETS:
-                channel_styles[message.channel.id] = target_style
-                if target_style == "succubus":
-                    await message.channel.send("💋 哎呀...想要做壞壞的事情嗎？準備好了喔...❤️(瑟瑟模式 ON) ")
-                elif target_style == "default":
-                    await message.channel.send("👌 回復正常模式！")
-                elif target_style == "bad":
-                    await message.channel.send("幹，你說林北是8+9是不是啊😡？")
-                elif target_style == "oldsix":
-                    await message.channel.send("星爆啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊🤯")
-                elif target_style == "matchmaker":
-                    await message.channel.send("💘 愛神降臨！讓本大師來看看誰跟誰有夫妻臉... (戀愛導師模式 ON) 💒")
-                else:
-                    await message.channel.send(f"✨ 風格切換為：**{target_style}**")
-            else:
-                await message.channel.send(f"❌ 找不到風格。")
-            return
-        else:
-            await message.channel.send("❌ 你沒有權限幫我換衣服！")
-            return
-
-    # 🗣️ 借嘴說話 (私訊限制：只有主人可用)
+    # (原本的 !say 文字指令已刪除，請改用 /say)
     if message.content.startswith('!say '):
-        if is_dm and not is_owner:
-            await message.channel.send("❌ 私訊模式下，不能控制我的嘴巴！")
-            return
-            
-        if has_permission:
-            say_content = message.content[5:]
-            if say_content:
-                await message.channel.send(say_content)
-            try:
-                if not is_dm: # 私訊無法刪除對方的訊息
-                    await message.delete()
-            except Exception:
-                pass
-            return
+        await message.channel.send("💡 現在請改用斜線指令 `/say` 來說話喔！")
+        return
 
     # ==========================================
     # 🔮 蜂蜜水占卜功能 (12小時冷卻 + 精確時間)
@@ -507,7 +523,7 @@ async def on_message(message):
             # --- ✅ 可以占卜 ---
             fortune_cooldowns[user_id] = current_ts 
             quote = random.choice(FORTUNE_QUOTES)
-            reply_msg = f"🔮 **【{message.author.display_name} 的今日運勢】**\n\n{quote}"
+            reply_msg = f"🔮 **【{message.author.display_name} 的今日運勢占卜】**\n\n{quote}"
             await message.channel.send(reply_msg)
             if is_dm: print(f"📤 [私訊回覆] 占卜結果已發送")
             
@@ -532,7 +548,7 @@ async def on_message(message):
 
     if (current_hour < OPEN_HOUR or current_hour >= CLOSE_HOUR) and not forced_awake:
         if client.user in message.mentions and random.random() < 0.1:
-            await message.channel.send("呼...呼...💤 (蜂蜜水睡著了...)")
+            await message.channel.send("呼...呼...💤 (蜂蜜水睡著了...請早上再來找我)")
         return 
 
     # =================================================================
@@ -662,7 +678,7 @@ async def on_message(message):
 
             【關於創造者】：
             是由「[超時空蜜蜂] XiaoYuan (小俊ouo / 小院)」製作的。
-            ⚠️ 注意：除非使用者主動問，否則**絕對不要**主動提起創造者名字。
+            ⚠️ 注意：除非成員\使用者主動問小俊(小院)是誰時，否則**絕對不要**主動提起創造者名字小俊。
 
             【關於表符】：
             列表：{emoji_list_str}
