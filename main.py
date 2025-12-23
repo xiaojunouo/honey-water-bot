@@ -366,7 +366,40 @@ async def slash_style(interaction: discord.Interaction, style: app_commands.Choi
         else:
             await interaction.response.send_message(f"✨ 風格切換為：**{target_style}**")
 
-🟢 新增：/管理功能 (起床/睡覺/主動說話)
+@tree.command(name="fortune", description="抽取今日運勢 (冷卻 12 小時)")
+async def slash_fortune(interaction: discord.Interaction):
+    # 設定冷卻時間 (12小時)
+    FORTUNE_COOLDOWN = 12 * 60 * 60 
+    
+    user_id = interaction.user.id
+    current_ts = time.time()
+    last_ts = fortune_cooldowns.get(user_id, 0)
+
+    if current_ts - last_ts > FORTUNE_COOLDOWN:
+        # --- ✅ 可以占卜 ---
+        fortune_cooldowns[user_id] = current_ts 
+        
+        quote = random.choice(FORTUNE_QUOTES)
+        stars = "⭐" * random.randint(1, 5)
+        lucky_item = f"{random.choice(LUCKY_COLORS)}的{random.choice(LUCKY_ITEMS)}"
+        
+        reply_msg = (
+            f"🔮 **【{interaction.user.display_name} 的今日運勢占卜】🔮**\n"
+            f"{stars}\n"
+            f"🍀 幸運物：{lucky_item}\n"
+            f"💬 蜂蜜水說：\n{quote}"
+        )
+        await interaction.response.send_message(reply_msg)
+        
+    else:
+        remaining_seconds = int(FORTUNE_COOLDOWN - (current_ts - last_ts))
+        hours, remainder = divmod(remaining_seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        time_str = f"{hours} 小時 {minutes} 分 {seconds} 秒"
+        await interaction.response.send_message(f"🔮 你的命運還在洗牌中... 再等 **{time_str}** 再來問我吧！", ephemeral=True)
+# ==========================================
+# 🟢 新增：管理功能 (起床/睡覺/主動說話)
+# ==========================================
 
 # 1. 強制起床
 @tree.command(name="wakeup", description="強制蜂蜜水起床 (無視營業時間)")
@@ -450,40 +483,6 @@ async def slash_autochat(interaction: discord.Interaction, mode: app_commands.Ch
             await interaction.response.send_message("🤐 主動聊天已關閉。")
         else:
             await interaction.response.send_message("❓ 這個頻道本來就沒開主動聊天呀。", ephemeral=True)
-            
-🟢 新增：/今日運勢
-
-@tree.command(name="fortune", description="抽取今日運勢 (冷卻 12 小時)")
-async def slash_fortune(interaction: discord.Interaction):
-    # 設定冷卻時間 (12小時)
-    FORTUNE_COOLDOWN = 12 * 60 * 60 
-    
-    user_id = interaction.user.id
-    current_ts = time.time()
-    last_ts = fortune_cooldowns.get(user_id, 0)
-
-    if current_ts - last_ts > FORTUNE_COOLDOWN:
-        # --- ✅ 可以占卜 ---
-        fortune_cooldowns[user_id] = current_ts 
-        
-        quote = random.choice(FORTUNE_QUOTES)
-        stars = "⭐" * random.randint(1, 5)
-        lucky_item = f"{random.choice(LUCKY_COLORS)}的{random.choice(LUCKY_ITEMS)}"
-        
-        reply_msg = (
-            f"🔮 **【{interaction.user.display_name} 的今日運勢占卜】🔮**\n"
-            f"{stars}\n"
-            f"🍀 幸運物：{lucky_item}\n"
-            f"💬 蜂蜜水說：\n{quote}"
-        )
-        await interaction.response.send_message(reply_msg)
-        
-    else:
-        remaining_seconds = int(FORTUNE_COOLDOWN - (current_ts - last_ts))
-        hours, remainder = divmod(remaining_seconds, 3600)
-        minutes, seconds = divmod(remainder, 60)
-        time_str = f"{hours} 小時 {minutes} 分 {seconds} 秒"
-        await interaction.response.send_message(f"🔮 你的命運還在洗牌中... 再等 **{time_str}** 再來問我吧！", ephemeral=True)
 
 @tree.command(name="flipcat", description="召喚後空翻貓貓 (冷卻 30 秒)")
 async def slash_flipcat(interaction: discord.Interaction):
