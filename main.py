@@ -366,6 +366,93 @@ async def slash_style(interaction: discord.Interaction, style: app_commands.Choi
         else:
             await interaction.response.send_message(f"✨ 風格切換為：**{target_style}**")
 
+🟢 新增：/管理功能 (起床/睡覺/主動說話)
+
+# 1. 強制起床
+@tree.command(name="wakeup", description="強制蜂蜜水起床 (無視營業時間)")
+async def slash_wakeup(interaction: discord.Interaction):
+    is_owner = (interaction.user.id == YOUR_ADMIN_ID)
+    is_dm = isinstance(interaction.channel, discord.DMChannel)
+    
+    # 權限檢查
+    has_perm = False
+    if is_dm:
+        has_perm = is_owner # 私訊只看主人
+    else:
+        # 群組看 主人 或 管理員
+        is_admin = interaction.user.guild_permissions.administrator
+        has_perm = is_owner or is_admin
+
+    if not has_perm:
+        await interaction.response.send_message("❌ 你沒有權限叫我起床！", ephemeral=True)
+        return
+
+    global forced_awake
+    forced_awake = True
+    await interaction.response.send_message("👀 收到！喝了蠻牛！現在開始**強制營業** (無視睡覺時間)！🔥")
+
+# 2. 恢復睡覺
+@tree.command(name="sleep", description="讓蜂蜜水恢復正常作息 (解除強制清醒)")
+async def slash_sleep(interaction: discord.Interaction):
+    is_owner = (interaction.user.id == YOUR_ADMIN_ID)
+    is_dm = isinstance(interaction.channel, discord.DMChannel)
+    
+    # 權限檢查 (同上)
+    has_perm = False
+    if is_dm:
+        has_perm = is_owner 
+    else:
+        is_admin = interaction.user.guild_permissions.administrator
+        has_perm = is_owner or is_admin
+
+    if not has_perm:
+        await interaction.response.send_message("❌ 你沒有權限設定這個！", ephemeral=True)
+        return
+
+    global forced_awake
+    forced_awake = False
+    await interaction.response.send_message("🥱 哈欠...那我要恢復正常作息囉 💤")
+
+# 3. 主動聊天開關
+@tree.command(name="autochat", description="設定是否讓蜂蜜水主動找人聊天")
+@app_commands.choices(mode=[
+    app_commands.Choice(name="開啟 (ON)", value="on"),
+    app_commands.Choice(name="關閉 (OFF)", value="off")
+])
+async def slash_autochat(interaction: discord.Interaction, mode: app_commands.Choice[str]):
+    is_owner = (interaction.user.id == YOUR_ADMIN_ID)
+    is_dm = isinstance(interaction.channel, discord.DMChannel)
+
+    # 權限檢查
+    has_perm = False
+    if is_dm:
+        # 你的需求：私訊只有主人能用 (但注意：背景任務可能本來就過濾掉私訊，這邊只是給過指令權限)
+        has_perm = is_owner
+        if not has_perm:
+            await interaction.response.send_message("❌ 私訊模式下，只有小俊可以設定這個！", ephemeral=True)
+            return
+    else:
+        # 群組
+        is_admin = interaction.user.guild_permissions.administrator
+        has_perm = is_owner or is_admin
+        if not has_perm:
+            await interaction.response.send_message("❌ 你沒有權限設定這個！", ephemeral=True)
+            return
+
+    # 執行設定
+    cid = interaction.channel_id
+    if mode.value == "on":
+        active_autochat_channels.add(cid)
+        await interaction.response.send_message("📢 已在這個頻道開啟「主動聊天」模式！")
+    else:
+        if cid in active_autochat_channels:
+            active_autochat_channels.remove(cid)
+            await interaction.response.send_message("🤐 主動聊天已關閉。")
+        else:
+            await interaction.response.send_message("❓ 這個頻道本來就沒開主動聊天呀。", ephemeral=True)
+            
+🟢 新增：/今日運勢
+
 @tree.command(name="fortune", description="抽取今日運勢 (冷卻 12 小時)")
 async def slash_fortune(interaction: discord.Interaction):
     # 設定冷卻時間 (12小時)
@@ -537,58 +624,6 @@ async def on_message(message):
         else:
             await message.channel.send("❌ 你沒有權限叫我去睡覺！")
             return
-
-    # 👀 強制起床
-    if message.content == '!wakeup':
-        if has_permission:
-            forced_awake = True
-            await message.channel.send("👀 收到！喝了蠻牛！現在開始**強制營業** (無視睡覺時間)！🔥")
-        else:
-            await message.channel.send("❌ 你沒有權限叫我起床！")
-        return
-
-    # 🥱 恢復作息
-    if message.content == '!sleep':
-        if has_permission:
-            forced_awake = False
-            await message.channel.send("🥱 哈欠...那我要恢復正常作息囉 💤")
-        else:
-            await message.channel.send("❌ 你沒有權限設定這個！")
-        return
-
-    # 📢 主動說話開關
-    if message.content == '!autochat on':
-        if is_dm:
-            await message.channel.send("❌ 私訊模式無法使用主動聊天功能喔！")
-            return
-        if has_permission:
-            active_autochat_channels.add(message.channel.id)
-            await message.channel.send("📢 已在這個頻道開啟「主動聊天」模式！")
-        else:
-            await message.channel.send("❌ 你沒有權限設定這個！")
-        return
-
-    if message.content == '!autochat off':
-        if is_dm:
-            await message.channel.send("❓ 私訊本來就不能開主動聊天喔。")
-            return
-        if has_permission:
-            if message.channel.id in active_autochat_channels:
-                active_autochat_channels.remove(message.channel.id)
-                await message.channel.send("🤐 主動聊天已關閉。")
-            else:
-                await message.channel.send("❓ 這個頻道本來就沒開主動聊天呀。")
-        else:
-            await message.channel.send("❌ 你沒有權限設定這個！")
-        return
-
-    # 提示改用斜線指令
-    if message.content.startswith('!style'):
-        await message.channel.send("💡 現在請改用斜線指令 `/style` 來換衣服喔！(有選單可以用)")
-        return
-    if message.content.startswith('!say '):
-        await message.channel.send("💡 現在請改用斜線指令 `/say` 來說話喔！")
-        return
 
     # ==========================================
     # 🔮 蜂蜜水占卜功能 (文字觸發版：同步使用隨機要素)
