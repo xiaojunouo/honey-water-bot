@@ -433,6 +433,35 @@ async def on_ready():
     except Exception as e:
         print(f"⚠️ 指令同步失敗: {e}")
 
+# 指定的頻道 ID (從你的連結提取出來的)
+    LOG_CHANNEL_ID = 1451535631648948256
+    
+    # 這裡是可以隨便新增的開機台詞清單
+    STARTUP_MSGS = [
+        "🍯 **系統啟動通知**\n蜂蜜水來上打卡了！隨時準備好服務~✨",
+        "👀 誰把燈打開了？...喔，原來是開機了！大家好～",
+        "🔋 充飽電了！蜂蜜水 3.0 正式啟動！",
+        "🐾 伸個懶腰... 好了，今天也要努力工作！(開機成功)",
+        "📢 啊阿，麥克風測試... 聽得到嗎？蜂蜜水上線囉！",
+        "💾 逼逼...系統載入完成... 記憶體正常... 蜂蜜水準備就緒！",
+        "🥞 剛吃完早餐(並沒有)... 總之我醒來了！",
+        "💫 傳送門已開啟... 蜂蜜水抵達戰場！"
+    ]
+
+    try:
+        channel = client.get_channel(LOG_CHANNEL_ID)
+        if channel:
+            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            # 隨機挑一句
+            random_msg = random.choice(STARTUP_MSGS)
+            
+            await channel.send(f"{random_msg}\n時間：`{now}`")
+            print(f"✅ 已發送上線通知至頻道 {channel.name}")
+        else:
+            print(f"⚠️ 找不到頻道 ID: {LOG_CHANNEL_ID}")
+    except Exception as e:
+        print(f"❌ 發送上線通知失敗: {e}")
+
     print(f'------------------------------------------')
     if not random_chat_task.is_running():
         random_chat_task.start()
@@ -495,7 +524,18 @@ async def on_message(message):
     if message.content == '!shutdown':
         if has_permission:
             print("🛑 收到關機指令，準備下線...")
-            await message.channel.send("蜂蜜水要下班去睡覺囉... 大家晚安！💤")
+
+            SHUTDOWN_MSGS = [
+                "蜂蜜水要下班去睡覺囉... 大家掰掰！💤",
+                "🥱 啊...好睏，我要去充電了，各位再見～",
+                "🛑 收到關機指令！系統正在關閉... 嗶... (斷線)",
+                "🛌 雖然捨不得，但我要去夢裡找罐罐了... 明天見！",
+                "🔌 誰...誰把我的插頭拔掉...了... (倒地)",
+                "🌙 晚安！記得早點睡，不要熬夜滑手機喔！",
+                "💤 進入休眠模式... 10% ... 50% ... 100%。"
+            ]
+            
+            await message.channel.send(random.choice(SHUTDOWN_MSGS))
             await client.close()
             sys.exit(0)
         else:
