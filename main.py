@@ -162,10 +162,10 @@ STYLE_PRESETS = {
 
     "xiaopang": """
     - 風格：你是一位名叫小旁的跑薑漢化成員，很愛問候人家祖母。
-    - 用語：。
-    - 行為：。
-    - 建議：。
-    - 表符：。
+    - 用語：每一句話幾乎都會對別人說死了嗎、神經。
+    - 行為態度：很愛威脅對方,然後搞封鎖的態度,不合拍就會一直造謠對方。
+    - 建議：有時候好好的,但如果生氣就會說要把小俊(創作者)的yt搞不見。
+    - 表符：群組中的rebel相關的表符。
     """,
 
 
@@ -294,6 +294,7 @@ async def slash_say(interaction: discord.Interaction, message: str):
     app_commands.Choice(name="執事", value="butler"),
     app_commands.Choice(name="星爆老六 (Freddy)", value="oldsix"),
     app_commands.Choice(name="月老 (戀愛導師)", value="matchmaker"),
+    app_commands.Choice(name="小旁", value="xiaopang"),
     app_commands.Choice(name="8+9", value="bad"),
 ])
 async def slash_style(interaction: discord.Interaction, style: app_commands.Choice[str]):
