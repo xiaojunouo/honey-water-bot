@@ -366,6 +366,129 @@ async def slash_style(interaction: discord.Interaction, style: app_commands.Choi
         else:
             await interaction.response.send_message(f"✨ 風格切換為：**{target_style}**")
 
+# ==========================================
+# 🟢 新增指令：趣味互動類
+# ==========================================
+
+@tree.command(name="ship", description="測量兩人的契合度 (CP值)，並附帶 AI 銳評")
+@app_commands.describe(user1="第一位主角 (預設是你)", user2="第二位主角")
+async def slash_ship(interaction: discord.Interaction, user2: discord.User, user1: discord.User = None):
+    await interaction.response.defer() # 因為 AI 生成需要時間
+
+    if user1 is None:
+        user1 = interaction.user
+
+    # 計算隨機分數 (為了趣味，使用 ID 運算讓結果在同一天內固定，或直接隨機)
+    # 這裡直接用純隨機，讓大家可以一直玩
+    score = random.randint(0, 100)
+    
+    # 進度條視覺化
+    bar_length = 10
+    filled_length = int(bar_length * score // 100)
+    bar = "█" * filled_length + "░" * (bar_length - filled_length)
+
+    # 取得當前風格
+    current_style_key = channel_styles.get(interaction.channel_id, "default")
+    current_style_prompt = STYLE_PRESETS.get(current_style_key, STYLE_PRESETS["default"])
+
+    # 建構 Prompt 請 AI 講評
+    prompt = f"""
+    你現在的身分是「蜂蜜水」。
+    【當前風格】：{current_style_prompt}
+    
+    【任務】：
+    使用者 {user1.display_name} 和 {user2.display_name} 正在進行「契合度測試」。
+    系統計算出的分數是：{score} 分。
+    
+    請根據你的風格，對這個分數和這兩個人的關係發表一段「簡短的評論」(50字以內)。
+    如果是低分請盡情吐槽或安慰，高分則祝福或調侃。
+    """
+    
+    try:
+        response = model.generate_content(prompt)
+        comment = response.text.strip()
+    except Exception:
+        comment = "AI 腦袋過熱，暫時無法評論，但分數是準的！"
+
+    msg = (
+        f"💗 **【緣分檢測實驗室】** 💗\n"
+        f"🔸 **{user1.display_name}** x  **{user2.display_name}**\n"
+        f"📊 契合度：**{score}%**\n"
+        f"[{bar}]\n\n"
+        f"💬 **蜂蜜水點評**：\n{comment}"
+    )
+    
+    await interaction.followup.send(msg)
+
+
+@tree.command(name="judge", description="讓蜂蜜水用當前風格「評價/吐槽」某位成員")
+@app_commands.describe(target="想被審判的倒楣鬼")
+async def slash_judge(interaction: discord.Interaction, target: discord.User):
+    await interaction.response.defer()
+
+    # 取得當前風格
+    current_style_key = channel_styles.get(interaction.channel_id, "default")
+    current_style_prompt = STYLE_PRESETS.get(current_style_key, STYLE_PRESETS["default"])
+
+    prompt = f"""
+    你現在的身分是「蜂蜜水」。
+    【當前風格】：{current_style_prompt}
+    
+    【任務】：
+    請對使用者「{target.display_name}」進行一段「靈魂評價」。
+    
+    【規則】：
+    1. 如果風格是「毒舌/8+9/小旁」，請用力吐槽他、開玩笑地罵他。
+    2. 如果風格是「執事/貓娘」，請稱讚他或對他撒嬌。
+    3. 如果風格是「色氣大哥哥」，請調戲他。
+    4. 內容控制在 60 字以內，要好笑一點。
+    """
+
+    try:
+        response = model.generate_content(prompt)
+        text = response.text.strip()
+        await interaction.followup.send(f"👉 **對 {target.mention} 的靈魂審判：**\n{text}")
+    except Exception as e:
+        await interaction.followup.send("🫣 審判中途發生錯誤，這次先放過你！")
+
+
+@tree.command(name="pick", description="選擇困難症救星！幫你從多個選項中選一個")
+@app_commands.describe(options="選項用空格分開 (例如：雞排 珍奶 臭豆腐)")
+async def slash_pick(interaction: discord.Interaction, options: str):
+    # 處理輸入
+    choices_list = options.split()
+    if len(choices_list) < 2:
+        await interaction.response.send_message("❌ 請至少給我兩個選項！(用空白鍵隔開)", ephemeral=True)
+        return
+
+    await interaction.response.defer()
+    
+    # 隨機選一個
+    selected = random.choice(choices_list)
+    
+    # 取得當前風格
+    current_style_key = channel_styles.get(interaction.channel_id, "default")
+    current_style_prompt = STYLE_PRESETS.get(current_style_key, STYLE_PRESETS["default"])
+
+    prompt = f"""
+    你現在的身分是「蜂蜜水」。
+    【當前風格】：{current_style_prompt}
+    
+    【任務】：
+    使用者有選擇困難，選項有：{options}。
+    你幫他選了：「{selected}」。
+    
+    請用你的風格告訴他為什麼選這個 (可以瞎掰理由，好笑為主)。
+    """
+
+    try:
+        response = model.generate_content(prompt)
+        reason = response.text.strip()
+    except:
+        reason = "直覺告訴我的！"
+
+    await interaction.followup.send(f"👈 **蜂蜜水幫你選：** `{selected}`\n\n💬 **理由：** {reason}")
+
 @tree.command(name="fortune", description="抽取今日運勢 (冷卻 12 小時)")
 async def slash_fortune(interaction: discord.Interaction):
     # 設定冷卻時間 (12小時)
