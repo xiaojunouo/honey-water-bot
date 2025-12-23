@@ -367,19 +367,23 @@ async def slash_style(interaction: discord.Interaction, style: app_commands.Choi
             await interaction.response.send_message(f"✨ 風格切換為：**{target_style}**")
 
 # ==========================================
-# 🟢 新增指令：趣味互動類
+# 🟢 新增指令：趣味互動類 (群組限定)
 # ==========================================
 
 @tree.command(name="ship", description="測量兩人的契合度 (CP值)，並附帶 AI 銳評")
 @app_commands.describe(user1="第一位主角 (預設是你)", user2="第二位主角")
 async def slash_ship(interaction: discord.Interaction, user2: discord.User, user1: discord.User = None):
+    # 🚫 限制：私訊絕對不可用
+    if isinstance(interaction.channel, discord.DMChannel):
+        await interaction.response.send_message("❌ 為了保持神祕感與公開處刑的樂趣，這個指令只能在【群組】裡大家一起玩喔！", ephemeral=True)
+        return
+
     await interaction.response.defer() # 因為 AI 生成需要時間
 
     if user1 is None:
         user1 = interaction.user
 
-    # 計算隨機分數 (為了趣味，使用 ID 運算讓結果在同一天內固定，或直接隨機)
-    # 這裡直接用純隨機，讓大家可以一直玩
+    # 計算隨機分數
     score = random.randint(0, 100)
     
     # 進度條視覺化
@@ -424,6 +428,11 @@ async def slash_ship(interaction: discord.Interaction, user2: discord.User, user
 @tree.command(name="judge", description="讓蜂蜜水用當前風格「評價/吐槽」某位成員")
 @app_commands.describe(target="想被審判的倒楣鬼")
 async def slash_judge(interaction: discord.Interaction, target: discord.User):
+    # 🚫 限制：私訊絕對不可用
+    if isinstance(interaction.channel, discord.DMChannel):
+        await interaction.response.send_message("❌ 這種背後說壞話(或好話)的事情，要在【群組】大家面前講才刺激啊！(私訊不可用)", ephemeral=True)
+        return
+
     await interaction.response.defer()
 
     # 取得當前風格
@@ -438,7 +447,7 @@ async def slash_judge(interaction: discord.Interaction, target: discord.User):
     請對使用者「{target.display_name}」進行一段「靈魂評價」。
     
     【規則】：
-    1. 如果風格是「毒舌/8+9/小旁」，請用力吐槽他、開玩笑地罵他。
+    1. 如果風格是「8+9/小旁」，請用力吐槽他、開玩笑地罵他。
     2. 如果風格是「執事/貓娘」，請稱讚他或對他撒嬌。
     3. 如果風格是「色氣大哥哥」，請調戲他。
     4. 內容控制在 60 字以內，要好笑一點。
@@ -455,6 +464,11 @@ async def slash_judge(interaction: discord.Interaction, target: discord.User):
 @tree.command(name="pick", description="選擇困難症救星！幫你從多個選項中選一個")
 @app_commands.describe(options="選項用空格分開 (例如：雞排 珍奶 臭豆腐)")
 async def slash_pick(interaction: discord.Interaction, options: str):
+    # 🚫 限制：私訊絕對不可用
+    if isinstance(interaction.channel, discord.DMChannel):
+        await interaction.response.send_message("❌ 選擇困難症需要觀眾！請在【群組】裡使用這個指令。", ephemeral=True)
+        return
+
     # 處理輸入
     choices_list = options.split()
     if len(choices_list) < 2:
@@ -471,7 +485,7 @@ async def slash_pick(interaction: discord.Interaction, options: str):
     current_style_prompt = STYLE_PRESETS.get(current_style_key, STYLE_PRESETS["default"])
 
     prompt = f"""
-    你現在的身分是「蜂蜜水」，Discord 吉祥物。
+    你現在的身分是「蜂蜜水」。
     【當前風格】：{current_style_prompt}
     
     【任務】：
