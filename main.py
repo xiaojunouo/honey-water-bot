@@ -502,6 +502,134 @@ async def slash_pick(interaction: discord.Interaction, options: str):
         reason = "直覺告訴我的！"
 
     await interaction.followup.send(f"👈 **蜂蜜水幫你選：** `{selected}`\n\n💬 **理由：** {reason}")
+# ==========================================
+# 🎮 趣味小遊戲 (無 AI 版 / 群組限定)
+# ==========================================
+
+@tree.command(name="slots", description="玩一把蜂蜜拉霸機！看能不能連成一線")
+async def slash_slots(interaction: discord.Interaction):
+    # 🚫 私訊不可用
+    if isinstance(interaction.channel, discord.DMChannel):
+        await interaction.response.send_message("❌ 賭場只開在群組裡！", ephemeral=True)
+        return
+
+    # 拉霸機的圖案
+    emojis = ["🍎", "🍊", "🍇", "🍒", "💎", "7️⃣", "🍯"]
+    
+    # 轉動三個滾輪
+    a = random.choice(emojis)
+    b = random.choice(emojis)
+    c = random.choice(emojis)
+    
+    # 建立版面
+    result_board = (
+        "🎰 **【蜂蜜大賭場】** 🎰\n"
+        "------------------\n"
+        f"|  {a}  |  {b}  |  {c}  |\n"
+        "------------------"
+    )
+
+    # 判斷結果
+    if a == b == c:
+        if a == "7️⃣":
+            msg = f"{result_board}\n\n🚨 **JACKPOT!!!** 777 大獎！太神啦！🎉🎉🎉"
+        elif a == "🍯":
+            msg = f"{result_board}\n\n🍯 **Sweet!** 吃到滿滿的蜂蜜！大滿足！🐻"
+        elif a == "💎":
+            msg = f"{result_board}\n\n💎 **Rich!** 發財了發財了！💰"
+        else:
+            msg = f"{result_board}\n\n✨ **恭喜中獎！** 三個一樣運氣不錯喔！"
+    elif a == b or b == c or a == c:
+        msg = f"{result_board}\n\n🤏 **差一點點！** 有兩個一樣，再接再厲！"
+    else:
+        fail_msgs = ["銘謝惠顧", "錢包空空...", "再試一次?", "幫QQ"]
+        msg = f"{result_board}\n\n💨 **{random.choice(fail_msgs)}**"
+
+    await interaction.response.send_message(msg)
+
+
+@tree.command(name="russian", description="俄羅斯蜂蜜輪盤 (1/6 機率中彈)")
+async def slash_russian(interaction: discord.Interaction):
+    # 🚫 私訊不可用
+    if isinstance(interaction.channel, discord.DMChannel):
+        await interaction.response.send_message("❌ 自己跟自己玩太邊緣了吧...去群組玩！", ephemeral=True)
+        return
+
+    # 1. 生成 1~6 的隨機數
+    bullet = random.randint(1, 6)
+    
+    await interaction.response.send_message("🔫 拿起左輪手槍... 轉動彈巢... (緊張)")
+    time.sleep(1) # 增加一點點延遲感 (不會卡住整個機器人，因為時間很短)
+
+    if bullet == 1:
+        # 中彈效果
+        death_msg = (
+            f"💥 **砰！**\n"
+            f"{interaction.user.mention} 倒在了血泊中... (假裝的)\n"
+            f"蜂蜜水：哎呀，要幫忙叫救護車嗎？🚑"
+        )
+        await interaction.followup.send(death_msg)
+    else:
+        # 安全效果
+        safe_msg = (
+            f"☁️ *喀嚓...*\n"
+            f"{interaction.user.mention} 運氣不錯，是空包彈！\n"
+            f"蜂蜜水：呼... 嚇死寶寶了。"
+        )
+        await interaction.followup.send(safe_msg)
+
+
+@tree.command(name="duel", description="向某人發起決鬥！(比大小)")
+@app_commands.describe(opponent="你要挑戰的對手")
+async def slash_duel(interaction: discord.Interaction, opponent: discord.User):
+    # 🚫 私訊不可用
+    if isinstance(interaction.channel, discord.DMChannel):
+        await interaction.response.send_message("❌ 決鬥需要觀眾！去群組吧。", ephemeral=True)
+        return
+
+    # 不能跟自己打，也不能跟機器人打
+    if opponent.id == interaction.user.id:
+        await interaction.response.send_message("❓ 你想打自己？我建議你冷靜一點...", ephemeral=True)
+        return
+    if opponent.bot:
+        await interaction.response.send_message("🤖 機器人是無敵的，你贏不了我。", ephemeral=True)
+        return
+
+    # 計算戰力 (0-100)
+    power_user = random.randint(1, 100)
+    power_opponent = random.randint(1, 100)
+
+    # 決定戰鬥過程描述 (隨機選一組)
+    battle_templates = [
+        ("使用平底鍋攻擊", "丟出了樂高積木"),
+        ("使出了龜派氣功", "使用了替身攻擊"),
+        ("衝上去咬了一口", "用尾巴甩了一巴掌"),
+        ("發動嘴遁", "使出星爆氣流斬")
+    ]
+    move_a, move_b = random.choice(battle_templates)
+
+    # 決定勝負
+    if power_user > power_opponent:
+        winner = interaction.user
+        loser = opponent
+        result_text = f"🏆 **勝負已分！** {interaction.user.mention} 獲得勝利！"
+    elif power_opponent > power_user:
+        winner = opponent
+        loser = interaction.user
+        result_text = f"🏆 **勝負已分！** {opponent.mention} 反殺成功！"
+    else:
+        result_text = "🤝 **平手！** 兩個人實力相當，惺惺相惜。"
+
+    # 組合訊息
+    msg = (
+        f"⚔️ **【世紀大決鬥】** ⚔️\n"
+        f"🔴 {interaction.user.display_name} ({move_a}) 骰出了 **{power_user}** 點！\n"
+        f"🔵 {opponent.display_name} ({move_b}) 骰出了 **{power_opponent}** 點！\n"
+        f"----------------------------------\n"
+        f"{result_text}"
+    )
+
+    await interaction.response.send_message(msg)
 
 @tree.command(name="fortune", description="抽取今日運勢 (冷卻 12 小時)")
 async def slash_fortune(interaction: discord.Interaction):
