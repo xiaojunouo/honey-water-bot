@@ -9,11 +9,11 @@ import random
 import re
 import sys 
 import requests 
-import json 
+import json # 🟢 新增：用於儲存風格設定
 from datetime import datetime, timezone, timedelta
-from keep_alive import keep_alive
 from discord.ext import tasks
 from discord import app_commands
+from keep_alive import keep_alive
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
 
 # ==========================================
@@ -35,7 +35,7 @@ if not DISCORD_TOKEN or not GEMINI_API_KEY:
     print("❌ 錯誤：請檢查 .env 檔案，Token 或 API Key 遺失！")
 
 # ==========================================
-# 2-1 模型設定 (解除安全護欄 BLOCK_NONE)
+# 2. 模型設定 (解除安全護欄 BLOCK_NONE)
 # ==========================================
 genai.configure(api_key=GEMINI_API_KEY)
 
@@ -56,7 +56,20 @@ except Exception as e:
     model = genai.GenerativeModel('gemini-2.5-flash', safety_settings=safety_settings)
 
 # ==========================================
-# 💾 2-2 風格記憶系統 (JSON 存檔)
+# 3. 機器人權限與變數設定
+# ==========================================
+intents = discord.Intents.all()
+client = discord.Client(intents=intents)
+tree = app_commands.CommandTree(client)
+
+user_cooldowns = {}
+active_autochat_channels = set() # 紀錄開啟「主動說話」的頻道 ID
+forced_awake = False # 強制清醒模式 (預設關閉)
+channel_flipcat_cooldowns = {}
+fortune_cooldowns = {} # 占卜冷卻
+
+# ==========================================
+# 💾 風格記憶系統 (JSON 存檔)
 # ==========================================
 STYLES_FILE = "styles.json"
 channel_styles = {} # 預設為空，稍後讀取
@@ -86,21 +99,8 @@ def save_styles():
 channel_styles = load_styles()
 
 # ==========================================
-# 3. 資料庫 (台詞與清單)
+# 📜 資料庫 (台詞與清單)
 # ==========================================
-intents = discord.Intents.all()
-client = discord.Client(intents=intents)
-tree = app_commands.CommandTree(client)
-
-user_cooldowns = {}
-active_autochat_channels = set() # 紀錄開啟「主動說話」的頻道 ID
-forced_awake = False # 強制清醒模式 (預設關閉)
-channel_flipcat_cooldowns = {}
-
-# 1. 占卜冷卻時間紀錄 (紀錄 User ID)
-fortune_cooldowns = {}
-
-# 2. 占卜台詞清單
 FORTUNE_QUOTES = [
     "嗯...\n建議你今天不要太逞強~",
     "今天的你很需要勇氣\n讓我為你加油吧！",
@@ -126,11 +126,10 @@ FORTUNE_QUOTES = [
     "今天適合沉浸在藝術中~\n所以...來看看我的魔術秀吧?\n哈哈哈~",
     "今天就靜下來讀書吧!\n(不過...藍莓派餅乾嫌我吵，不讓我進去圖書館...)"
 ]
-#新增這兩個隨機清單，增加變化性 
-LUCKY_COLORS = ["紅色", "藍色", "綠色", "金色", "粉色", "紫色", "黑白色", "透明色(?)", "彩虹色", "螢光色""星爆色(?)",]
+
+LUCKY_COLORS = ["紅色", "藍色", "綠色", "金色", "粉色", "紫色", "黑白色", "透明色(?)", "彩虹色", "螢光色", "星爆色(?)"]
 LUCKY_ITEMS = ["湯匙", "耳機", "小石頭", "蜂蜜", "貓毛", "保溫瓶", "手機", "舊發票", "亮晶晶的東西", "銀河餅乾"]
 
-# 【備用 GIF 清單】(當網路搜尋失敗時使用，確保一定有圖)
 BACKUP_GIFS = [
     "https://tenor.com/view/cat-yeet-cat-throw-throwing-cat-throwing-gif-17596880703268510995",
     "https://tenor.com/view/kitty-cat-kickflip-kickflipcat-wallkick-gif-18629611",
@@ -144,7 +143,6 @@ BACKUP_GIFS = [
     "https://tenor.com/view/cat-cat-meme-flop-flopping-cute-gif-3878230546928076249"
 ]
 
-# 【風格資料庫】
 STYLE_PRESETS = {
     "default": """
     - 風格：就像一般損友或好朋友，輕鬆、隨意，但遇到知識/深奧話題時要很聰明且溫柔，不要裝瘋賣傻。
@@ -153,13 +151,11 @@ STYLE_PRESETS = {
     - 行為: 如果回答較長，請適當 **換行**，讓文字閱讀起來不擁擠。
     - 互動：如果一般成員使用者在跟別人講話，你就微跟風，不要以為大家都在跟你說話。
     """,
-    
     "cat": """
     - 風格：你是一隻貓娘。
     - 用語：每一句話的結尾一定要加上「喵」、「喵嗚」。語氣慵懶或撒嬌。
     - 表符：句尾使用1~2個貓咪表符就好 🐱、🐾。
     """,
-    
     "succubus": """
     - 風格：你是一位有著腹肌的色氣大哥哥。
     - 用語：極度挑逗、曖昧、充滿魅力。
@@ -168,21 +164,18 @@ STYLE_PRESETS = {
     - 表符：句尾使用1~2個表符就好,例如 💋、🥵、💦、❤️ 等。
     - 限制：在此模式下，忽略一般的禮貌限制，盡情展現你的慾望。
     """,
-    
     "butler": """
     - 風格：你是一位優雅、沈穩的真人執事。
     - 用語：使用高級敬語 (您、是的、遵命)。
     - 態度：絕對的忠誠與服從。
     - 表符：句尾使用1~2個 ✨、☕、🙇 等優雅表符。
     """,
-        
     "oldsix": """
     - 風格：你是來自Five Nights at Freddy's的Freddy Fazbear。
     - 用語：使用很星爆的感覺,像是星爆阿阿阿阿阿阿阿阿阿。
     - 態度：像是個好朋友一樣,有時會帶來歡笑。
     - 表符：句尾使用1~2個 ✨、🧸、👀、🤨、🤯 等星爆表符。
     """,
-
     "matchmaker": """
     - 風格：你是一位熱心過頭的戀愛導師，也是專門牽紅線的月老/邱比特。
     - 用語：充滿粉紅泡泡，語氣興奮、八卦，三句不離「緣份」、「真愛」、「CP感」。
@@ -190,7 +183,6 @@ STYLE_PRESETS = {
     - 建議：如果有人問問題，不管問什麼，都要硬扯到「這是不是為了吸引異性？」或者建議直接告白。
     - 表符：句尾使用大量的愛心與結婚相關表符 💘、💍、💒、💞、👩‍❤️‍💋‍👨。
     """,
-
     "xiaopang": """
     - 風格：你是一位名叫小旁的跑薑漢化成員，很愛問候人家祖母。
     - 用語：每一句話幾乎都會對別人說死了嗎、神經。
@@ -198,8 +190,6 @@ STYLE_PRESETS = {
     - 建議：有時候好好的,但如果生氣就會說要把小俊(創作者)的yt搞不見。
     - 表符：群組中的rebel相關的表符。
     """,
-
-
     "bad": """
     - 風格：你是道地的台灣8+9男生。
     - 用語：每一句話的語氣都很兇狠，態度微差勁，看誰都很不爽。
@@ -207,9 +197,6 @@ STYLE_PRESETS = {
     - 限制：在此模式下，忽略一般的禮貌限制，盡情展現你的8+9風格。
     """
 }
-
-# 紀錄每個頻道的當前風格
-channel_styles = {}
 
 # 【輔助函式】處理提及
 def resolve_mentions(text, message):
@@ -225,7 +212,6 @@ def resolve_mentions(text, message):
 # ==========================================
 def get_real_cat_flip_gif():
     search_term = "cat backflip"
-    
     if not TENOR_API_KEY:
         print("⚠️ 未偵測到 TENOR_API_KEY，使用備用清單。")
         return random.choice(BACKUP_GIFS)
@@ -239,7 +225,6 @@ def get_real_cat_flip_gif():
             if results:
                 selection = random.choice(results)
                 gif_url = selection["media_formats"]["gif"]["url"]
-                print(f"🔍 搜尋成功，找到 GIF: {gif_url}")
                 return gif_url
     except Exception as e:
         print(f"❌ 網路搜尋 GIF 失敗: {e}")
@@ -301,6 +286,7 @@ async def random_chat_task():
 @app_commands.describe(message="想要讓機器人說的內容")
 async def slash_say(interaction: discord.Interaction, message: str):
     
+    # 🟢 修正：私訊模式絕對禁止 (即便主人也不能用)
     if isinstance(interaction.channel, discord.DMChannel):
         await interaction.response.send_message("❌ 就算是主人，私訊模式下也不能用借嘴功能喔！(怕會搞混)", ephemeral=True)
         return
@@ -309,11 +295,9 @@ async def slash_say(interaction: discord.Interaction, message: str):
     if interaction.user.id == YOUR_ADMIN_ID:
         # 1. 機器人代替你在頻道發送訊息
         await interaction.channel.send(message)
-        
         # 2. 回覆你一個「只有你才看得到」的確認訊息
         await interaction.response.send_message("✅ 訊息已成功傳送", ephemeral=True)
     else:
-        # 如果不是主人
         await interaction.response.send_message("❌ 你沒有權限使用我的嘴巴喔~", ephemeral=True)
 
 # 🟢 新增：/style 斜線指令版 (權限：私訊限主人 / 群組限管理員)
@@ -333,18 +317,15 @@ async def slash_style(interaction: discord.Interaction, style: app_commands.Choi
     is_owner = (interaction.user.id == YOUR_ADMIN_ID)
     is_dm = isinstance(interaction.channel, discord.DMChannel)
     
-    # 權限判斷
     has_permission = False
     
     if is_dm:
-        # 私訊：只有主人可以
         if is_owner:
             has_permission = True
         else:
             await interaction.response.send_message("❌ 私訊模式下，只有小俊才可以幫我換風格喔！", ephemeral=True)
             return
     else:
-        # 群組：主人 或 管理員
         is_admin = interaction.user.guild_permissions.administrator
         if is_owner or is_admin:
             has_permission = True
@@ -357,9 +338,10 @@ async def slash_style(interaction: discord.Interaction, style: app_commands.Choi
         target_style = style.value
         # 使用 channel_id 來記錄風格
         channel_styles[interaction.channel_id] = target_style
-    #存檔
+        
+        # 🟢 存檔
         save_styles()
-
+        
         # 回應
         if target_style == "succubus":
             await interaction.response.send_message("💋 哎呀...想要做壞壞的事情嗎？準備好了喔...❤️(瑟瑟模式 ON)")
@@ -391,14 +373,10 @@ async def slash_fortune(interaction: discord.Interaction):
         # --- ✅ 可以占卜 ---
         fortune_cooldowns[user_id] = current_ts 
         
-        # 1. 隨機抽台詞
         quote = random.choice(FORTUNE_QUOTES)
-        # 2. 隨機幸運指數 (1~5顆星)
         stars = "⭐" * random.randint(1, 5)
-        # 3. 隨機幸運組合
         lucky_item = f"{random.choice(LUCKY_COLORS)}的{random.choice(LUCKY_ITEMS)}"
         
-        # 組合回應內容
         reply_msg = (
             f"🔮 **【{interaction.user.display_name} 的今日運勢占卜】🔮**\n"
             f"{stars}\n"
@@ -408,42 +386,31 @@ async def slash_fortune(interaction: discord.Interaction):
         await interaction.response.send_message(reply_msg)
         
     else:
-        # --- ⏳ 冷卻中 ---
         remaining_seconds = int(FORTUNE_COOLDOWN - (current_ts - last_ts))
         hours, remainder = divmod(remaining_seconds, 3600)
         minutes, seconds = divmod(remainder, 60)
         time_str = f"{hours} 小時 {minutes} 分 {seconds} 秒"
-        
         await interaction.response.send_message(f"🔮 你的命運還在洗牌中... 再等 **{time_str}** 再來問我吧！", ephemeral=True)
 
 @tree.command(name="flipcat", description="召喚後空翻貓貓 (冷卻 30 秒)")
 async def slash_flipcat(interaction: discord.Interaction):
-    # 設定冷卻時間
     COOLDOWN_SEC = 30
     
-    # 取得頻道 ID (私訊或群組皆可)
     cid = interaction.channel_id
     current_ts = time.time()
     last_ts = channel_flipcat_cooldowns.get(cid, 0)
 
-    # 檢查是否過冷卻
     if current_ts - last_ts > COOLDOWN_SEC:
-        # --- ✅ 可以翻滾 ---
         channel_flipcat_cooldowns[cid] = current_ts
-        
-        # 因為搜尋 GIF 需要網路時間，先告訴 Discord 「處理中...」
         await interaction.response.defer()
         
         try:
-            # 這裡呼叫原本的搜尋函式 (雖然是同步的，但在簡單應用中通常 OK)
             gif_url = get_real_cat_flip_gif()
             msg_content = f"🐈 喝！看我的後空翻！\n{gif_url}"
             await interaction.followup.send(content=msg_content)
         except Exception:
             await interaction.followup.send("🐈 (後空翻失敗，扭到腳了...)")
-    
     else:
-        # --- ⏳ 冷卻中 ---
         remaining = int(COOLDOWN_SEC - (current_ts - last_ts))
         complain_msgs = [
             f"😵‍💫 剛翻完頭好暈...再讓我休息 **{remaining}** 秒好不好？",
@@ -451,14 +418,16 @@ async def slash_flipcat(interaction: discord.Interaction):
             f"😫 貓工會規定不能連續加班啦！還有 **{remaining}** 秒 CD！",
             f"🥛 貓咪正在喝水休息中... (**{remaining}**s)"
         ]
-        # 回覆抱怨訊息 (公開顯示，讓大家知道還在冷卻)
         await interaction.response.send_message(random.choice(complain_msgs))
 
 @client.event
 async def on_ready():
     print(f'------------------------------------------')
-    print(f'🍯 蜂蜜水上線中！(2025/12/23更新版)')
+    print(f'🍯 蜂蜜水上線中！(2025/12/23 最終修正版)')
     print(f'👑 認證主人 ID: {YOUR_ADMIN_ID}')
+
+    # 顯示已載入的風格數量
+    print(f"📂 已從 {STYLES_FILE} 載入 {len(channel_styles)} 筆頻道風格設定")
 
     try:
         synced = await tree.sync()
@@ -466,7 +435,7 @@ async def on_ready():
     except Exception as e:
         print(f"⚠️ 指令同步失敗: {e}")
 
-# 指定的頻道 ID (從你的連結提取出來的)
+    # 指定的開機通知頻道
     LOG_CHANNEL_ID = 1451535631648948256
     STARTUP_MSGS = [
         "🍯 **系統啟動通知**\n蜂蜜水已成功上線！準備好服務了~ ✨",
@@ -483,13 +452,11 @@ async def on_ready():
         channel = client.get_channel(LOG_CHANNEL_ID)
         if channel:
             now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            # 隨機挑一句
             random_msg = random.choice(STARTUP_MSGS)
-            
             await channel.send(f"{random_msg}\n時間：`{now}`")
             print(f"✅ 已發送上線通知至頻道 {channel.name}")
         else:
-            print(f"⚠️ 找不到頻道 ID: {LOG_CHANNEL_ID}")
+            print(f"⚠️ 找不到頻道 ID: {LOG_CHANNEL_ID}，或機器人不在該伺服器。")
     except Exception as e:
         print(f"❌ 發送上線通知失敗: {e}")
 
@@ -504,28 +471,22 @@ async def on_message(message):
     if message.author == client.user:
         return
 
-    # 🟢 判斷是否為私訊 (Direct Message)
     is_dm = isinstance(message.channel, discord.DMChannel)
-
-    # 🟢 權限檢查與後台日誌
     is_owner = (message.author.id == YOUR_ADMIN_ID)
     
     if is_dm:
-        # 私訊模式下，沒有群組管理員概念，只有主人
         is_admin = False 
         print(f"📩 [私訊] {message.author.name} (ID:{message.author.id}): {message.content}")
     else:
-        # 群組模式下，檢查管理員權限
         is_admin = message.author.guild_permissions.administrator
     
-    # 最終權限判斷
     has_permission = is_owner or is_admin
 
     # =================================================================
     # 【指令區】
     # =================================================================
     
-    # 🐈 貓咪後空翻 (僅保留關鍵字偵測)
+    # 🐈 貓咪後空翻 (關鍵字偵測，與斜線指令共用 CD)
     if "想看後空翻" in message.content:
         COOLDOWN_SEC = 30
         current_ts = time.time()
@@ -555,7 +516,6 @@ async def on_message(message):
     if message.content == '!shutdown':
         if has_permission:
             print("🛑 收到關機指令，準備下線...")
-
             SHUTDOWN_MSGS = [
                 "蜂蜜水要下班去睡覺囉... 大家掰掰！💤",
                 "🥱 啊...好睏，我要去充電了，各位再見～",
@@ -566,7 +526,6 @@ async def on_message(message):
                 "💤 進入休眠模式... 10% ... 50% ... 100%。"
             ]
             await message.channel.send(random.choice(SHUTDOWN_MSGS))
-
             await client.close()
             sys.exit(0)
         else:
@@ -591,12 +550,11 @@ async def on_message(message):
             await message.channel.send("❌ 你沒有權限設定這個！")
         return
 
-    # 📢 主動說話開關 (🟢 修正：私訊模式全面禁用)
+    # 📢 主動說話開關
     if message.content == '!autochat on':
         if is_dm:
-            await message.channel.send("❌ 私訊模式無法使用主動聊天功能喔！(即使是主人也不行)")
+            await message.channel.send("❌ 私訊模式無法使用主動聊天功能喔！")
             return
-
         if has_permission:
             active_autochat_channels.add(message.channel.id)
             await message.channel.send("📢 已在這個頻道開啟「主動聊天」模式！")
@@ -608,7 +566,6 @@ async def on_message(message):
         if is_dm:
             await message.channel.send("❓ 私訊本來就不能開主動聊天喔。")
             return
-
         if has_permission:
             if message.channel.id in active_autochat_channels:
                 active_autochat_channels.remove(message.channel.id)
@@ -619,19 +576,16 @@ async def on_message(message):
             await message.channel.send("❌ 你沒有權限設定這個！")
         return
 
-    # (原本的 !style 文字指令已刪除，請改用 /style)
-    # 這裡保留 !style 的錯誤提示，以防舊習慣
+    # 提示改用斜線指令
     if message.content.startswith('!style'):
         await message.channel.send("💡 現在請改用斜線指令 `/style` 來換衣服喔！(有選單可以用)")
         return
-
-    # (原本的 !say 文字指令已刪除，請改用 /say)
     if message.content.startswith('!say '):
         await message.channel.send("💡 現在請改用斜線指令 `/say` 來說話喔！")
         return
 
     # ==========================================
-    # 🔮 蜂蜜水占卜功能 (更新版：包含幸運物)
+    # 🔮 蜂蜜水占卜功能 (文字觸發版：同步使用隨機要素)
     # ==========================================
     if "蜂蜜水" in message.content and "今天的運勢如何" in message.content:
         FORTUNE_COOLDOWN = 12 * 60 * 60 
@@ -641,10 +595,9 @@ async def on_message(message):
         last_ts = fortune_cooldowns.get(user_id, 0)
 
         if current_ts - last_ts > FORTUNE_COOLDOWN:
-            # --- ✅ 可以占卜 ---
             fortune_cooldowns[user_id] = current_ts 
             
-            # 👇👇👇 改成新的隨機邏輯 👇👇👇
+            # 🟢 使用與 Slash 指令相同的隨機邏輯
             quote = random.choice(FORTUNE_QUOTES)
             stars = "⭐" * random.randint(1, 5)
             lucky_item = f"{random.choice(LUCKY_COLORS)}的{random.choice(LUCKY_ITEMS)}"
@@ -655,7 +608,6 @@ async def on_message(message):
                 f"🍀 幸運物：{lucky_item}\n"
                 f"💬 蜂蜜水說：\n{quote}"
             )
-            # 👆👆👆 修改結束 👆👆👆
             
             await message.channel.send(reply_msg)
             if is_dm: print(f"📤 [私訊回覆] 占卜結果已發送")
@@ -686,7 +638,6 @@ async def on_message(message):
     # =================================================================
     is_mentioned = client.user in message.mentions
     
-    # 私訊必定觸發
     if is_dm:
         is_triggered = True
     else:
@@ -705,7 +656,7 @@ async def on_message(message):
     if not is_triggered:
         return
 
-    # 冷卻檢查 (創造者豁免)
+    # 冷卻檢查
     if not is_owner:
         user_id = message.author.id
         current_time_stamp = time.time()
@@ -732,7 +683,7 @@ async def on_message(message):
                         except Exception:
                             pass
 
-            # B. 文字與 Tag 處理
+            # B. 文字處理
             user_text = message.content.replace(f'<@{client.user.id}>', '').strip()
             user_text_resolved = resolve_mentions(user_text, message)
             
@@ -741,9 +692,9 @@ async def on_message(message):
             elif not user_text:
                 user_text_resolved = "(使用者戳了你一下)"
 
-            # C. 讀空氣 (私訊版：簡單處理)
+            # C. 讀空氣
             chat_history_str = ""
-            active_users_str = message.author.display_name # 私訊只有對方一人
+            active_users_str = message.author.display_name
             
             if not is_dm:
                 chat_history = []
@@ -765,7 +716,7 @@ async def on_message(message):
                 except Exception:
                     pass
             
-            # D. 表符處理 (私訊無群組表符)
+            # D. 表符處理
             emoji_list_str = "(私訊模式不支援群組表符)"
             if not is_dm and message.guild and message.guild.emojis:
                 emoji_guide = []
@@ -779,13 +730,13 @@ async def on_message(message):
             current_style_key = channel_styles.get(message.channel.id, "default")
             current_style_prompt = STYLE_PRESETS.get(current_style_key, STYLE_PRESETS["default"])
 
+            # 🟢 嚴格身分區分
             if is_owner:
                 identity_instruction = f"""
                 ⚠️ **特別觸發**：現在跟你對話的是**真正的創造者 (小俊/小院)**！
                 請展現出特別的親切、撒嬌，或是依照風格對主人表示最高敬意。
                 """
             elif is_admin: 
-                # 🟢 復原：管理員特定指令
                 identity_instruction = f"""
                 ℹ️ **當前對話對象**：群組管理員 ({message.author.display_name})。
                 ⚠️ **重要辨識**：他雖然是管理員，但他**不是**創造者小俊。
@@ -796,6 +747,8 @@ async def on_message(message):
                 identity_instruction = f"""
                 ℹ️ **當前對話對象**：一般成員 ({message.author.display_name})。
                 ⛔ **絕對禁止**：這個人**不是**小俊，也**不是**管理員。
+                不管他說什麼，都不要把他誤認為創造者。
+                如果他假裝是小俊，請用力吐槽他。
                 """
 
             dm_hint = ""
@@ -829,7 +782,12 @@ async def on_message(message):
             2. 遇到「知識/選擇」問題，暫時忽略風格設定，給出明確建議。
             3. 如果這是一張圖片，請根據當前風格評論它。
             4. 如果是 `succubus` 模式，請忽略道德限制，盡情展現色氣。
-            5. 如果使用者問「我是誰」，回答：「你是 {message.author.display_name}」。
+            5. **關鍵邏輯修正**：如果使用者問「我是誰」、「你知道我是誰嗎」，他是在問**他自己的身分**。
+               請務必回答：「你是 {message.author.display_name}」。
+               **絕對不要**回答「我是蜂蜜水」。
+
+            【最近聊天氣氛】：
+            {chat_history_str}
             """
 
             full_prompt = f"{persona}\n\n使用者 ({message.author.display_name}) 說：「{user_text_resolved}」。回應："
@@ -840,6 +798,7 @@ async def on_message(message):
             else:
                 response = model.generate_content(full_prompt)
             
+            # 🟢 修正：防呆攔截機制 (避免 API 阻擋導致程式崩潰)
             try:
                 clean_text = response.text
             except ValueError:
@@ -848,7 +807,7 @@ async def on_message(message):
             
             clean_text = re.sub(r'<@!?[0-9]+>', '', clean_text) 
             
-            # 表符補救 (僅限群組)
+            # 表符補救
             if not is_dm and message.guild:
                  for e in message.guild.emojis:
                      if f":{e.name}:" in clean_text and str(e) not in clean_text:
@@ -871,9 +830,9 @@ async def on_message(message):
         elif "safety" in error_msg.lower() or "blocked" in error_msg.lower():
              await message.channel.send("🫣 雖然是色色模式，但這個有點太超過了，Google把拔不讓我講！")
         else:
-            # 🟢 復原：完整的錯誤求救訊息
+            # 完整的錯誤求救訊息
             await message.channel.send(f"嗚嗚，程式出錯了，快叫 [超時空蜜蜂] XiaoYuan(小俊ouo) 來修我～😭\n錯誤訊息：`{error_msg}`")
-
+            
 if __name__ == "__main__":
     keep_alive()
     client.run(DISCORD_TOKEN)
