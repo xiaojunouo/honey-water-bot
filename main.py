@@ -434,31 +434,51 @@ async def on_ready():
         print(f"⚠️ 指令同步失敗: {e}")
 
 # 指定的頻道 ID (從你的連結提取出來的)
-    LOG_CHANNEL_ID = 1451535631648948256
+LOG_CHANNEL_ID = 1451535631648948256
+    STATUS_FILE = "bot_status.txt"
     
-    # 這裡是可以隨便新增的開機台詞清單
-    STARTUP_MSGS = [
-        "🍯 **系統啟動通知**\n蜂蜜水來上打卡了！隨時準備好服務~✨",
-        "👀 誰把燈打開了？...喔，原來是開機了！大家好～",
-        "🔋 充飽電了！蜂蜜水 3.0 正式啟動！",
-        "🐾 伸個懶腰... 好了，今天也要努力工作！(開機成功)",
-        "📢 啊阿，麥克風測試... 聽得到嗎？蜂蜜水上線囉！",
-        "💾 逼逼...系統載入完成... 記憶體正常... 蜂蜜水準備就緒！",
-        "🥞 剛吃完早餐(並沒有)... 總之我醒來了！",
-        "💫 傳送門已開啟... 蜂蜜水抵達戰場！"
-    ]
+    # 預設台詞 (正常開機)
+    start_msg = "🍯 **系統啟動通知**\n蜂蜜水已成功上線！準備好服務了~ ✨"
+    
+    # 檢查上次的狀態
+    if os.path.exists(STATUS_FILE):
+        with open(STATUS_FILE, "r", encoding="utf-8") as f:
+            last_status = f.read().strip()
+        
+        if last_status == "RUNNING":
+            # 如果上次紀錄是 RUNNING，代表是被暴力關掉的
+            crash_msgs = [
+                "😵‍💫 痛痛痛... 上次是誰直接拔我插頭？(異常斷線恢復)",
+                "🚑 系統從崩潰中復原... 剛才發生什麼事了？",
+                "🔌 警告：偵測到上次未正常關機！不過我復活了✨",
+                "👻 我...我剛剛是不是死掉了一下？(重新連線)"
+            ]
+            start_msg = f"⚠️ **【異常復原通知】**\n{random.choice(crash_msgs)}"
+        else:
+            # 正常開機隨機台詞
+            STARTUP_MSGS = [
+                "🍯 **系統啟動通知**\n蜂蜜水已成功上線！準備好服務了~ ✨",
+                "👀 誰把燈打開了？...喔，原來是開機了！大家好～",
+                "🔋 充飽電了！蜂蜜水 3.0 正式啟動！",
+                "🐾 伸個懶腰... 好了，今天也要努力工作！(開機成功)",
+                "📢 測試測試，麥克風測試... 聽得到嗎？蜂蜜水上線囉！",
+                "💾 系統載入完成... 記憶體正常... 蜂蜜水準備就緒！",
+                "🥞 剛吃完早餐(並沒有)... 總之我醒來了！",
+                "💫 傳送門已開啟... 蜂蜜水抵達戰場！"
+            ]
+            start_msg = random.choice(STARTUP_MSGS)
 
+    # 寫入新的狀態：標記現在正在 RUNNING
+    with open(STATUS_FILE, "w", encoding="utf-8") as f:
+        f.write("RUNNING")
+
+    # 發送訊息
     try:
         channel = client.get_channel(LOG_CHANNEL_ID)
         if channel:
             now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            # 隨機挑一句
-            random_msg = random.choice(STARTUP_MSGS)
-            
-            await channel.send(f"{random_msg}\n時間：`{now}`")
-            print(f"✅ 已發送上線通知至頻道 {channel.name}")
-        else:
-            print(f"⚠️ 找不到頻道 ID: {LOG_CHANNEL_ID}")
+            await channel.send(f"{start_msg}\n時間：`{now}`")
+            print(f"✅ 已發送上線通知")
     except Exception as e:
         print(f"❌ 發送上線通知失敗: {e}")
 
@@ -534,7 +554,8 @@ async def on_message(message):
                 "🌙 晚安！記得早點睡，不要熬夜滑手機喔！",
                 "💤 進入休眠模式... 10% ... 50% ... 100%。"
             ]
-            
+            with open("bot_status.txt", "w", encoding="utf-8") as f:
+                f.write("STOPPED")
             await message.channel.send(random.choice(SHUTDOWN_MSGS))
             await client.close()
             sys.exit(0)
