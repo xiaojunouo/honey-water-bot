@@ -95,6 +95,9 @@ FORTUNE_QUOTES = [
     "今天適合沉浸在藝術中~\n所以...來看看我的魔術秀吧?\n哈哈哈~",
     "今天就靜下來讀書吧!\n(不過...藍莓派餅乾嫌我吵，不讓我進去圖書館...)"
 ]
+#新增這兩個隨機清單，增加變化性 
+LUCKY_COLORS = ["紅色", "藍色", "綠色", "金色", "粉色", "紫色", "黑白色", "透明色(?)", "彩虹色", "螢光色""星爆色(?)",]
+LUCKY_ITEMS = ["湯匙", "耳機", "小石頭", "蜂蜜", "貓毛", "保溫瓶", "手機", "舊發票", "亮晶晶的東西", "銀河餅乾"]
 
 # 【備用 GIF 清單】(當網路搜尋失敗時使用，確保一定有圖)
 BACKUP_GIFS = [
@@ -110,11 +113,11 @@ BACKUP_GIFS = [
     "https://tenor.com/view/cat-cat-meme-flop-flopping-cute-gif-3878230546928076249"
 ]
 
-# 【風格資料庫】(完整保留包含 oldsix, matchmaker)
+# 【風格資料庫】
 STYLE_PRESETS = {
     "default": """
     - 風格：就像一般損友或好朋友，輕鬆、隨意，但遇到知識/深奧話題時要很聰明且溫柔，不要裝瘋賣傻。
-    - ⛔ 重要修正：**絕對禁止**在沒人提起的狀況下一直說「想你」、「愛你」、「抱抱」這種肉麻話。以及請不要在對話中標記其他不在場的人，也不要憑空創造使用者。只要專注回覆這則訊息即可。
+    - ⛔ 重要修正：**絕對禁止**在沒人提起的狀況下一直說「想你」、「愛你」、「抱抱」這種肉麻話。以及請不要在對話中標記其他不在場的人，也不要憑空創造使用者。只要專注回覆這則訊息即可，也不用一直自我介紹或跟成員打招呼。
     - 用語：使用簡短的網路用語 (笑死、幹真假、三毀、好扯)。
     - 行為: 如果回答較長，請適當 **換行**，讓文字閱讀起來不擁擠。
     - 互動：如果一般成員使用者在跟別人講話，你就微跟風，不要以為大家都在跟你說話。
@@ -156,6 +159,15 @@ STYLE_PRESETS = {
     - 建議：如果有人問問題，不管問什麼，都要硬扯到「這是不是為了吸引異性？」或者建議直接告白。
     - 表符：句尾使用大量的愛心與結婚相關表符 💘、💍、💒、💞、👩‍❤️‍💋‍👨。
     """,
+
+    "xiaopang": """
+    - 風格：你是一位名叫小旁的跑薑漢化成員，很愛問候人家祖母。
+    - 用語：。
+    - 行為：。
+    - 建議：。
+    - 表符：。
+    """,
+
 
     "bad": """
     - 風格：你是道地的台灣8+9男生。
@@ -331,6 +343,44 @@ async def slash_style(interaction: discord.Interaction, style: app_commands.Choi
             await interaction.response.send_message("💘 愛神降臨！讓本大師來看看誰跟誰有夫妻臉... (戀愛導師模式 ON) 💒")
         else:
             await interaction.response.send_message(f"✨ 風格切換為：**{target_style}**")
+
+@tree.command(name="fortune", description="抽取今日運勢 (冷卻 12 小時)")
+async def slash_fortune(interaction: discord.Interaction):
+    # 設定冷卻時間 (12小時)
+    FORTUNE_COOLDOWN = 12 * 60 * 60 
+    
+    user_id = interaction.user.id
+    current_ts = time.time()
+    last_ts = fortune_cooldowns.get(user_id, 0)
+
+    if current_ts - last_ts > FORTUNE_COOLDOWN:
+        # --- ✅ 可以占卜 ---
+        fortune_cooldowns[user_id] = current_ts 
+        
+        # 1. 隨機抽台詞
+        quote = random.choice(FORTUNE_QUOTES)
+        # 2. 隨機幸運指數 (1~5顆星)
+        stars = "⭐" * random.randint(1, 5)
+        # 3. 隨機幸運組合
+        lucky_item = f"{random.choice(LUCKY_COLORS)}的{random.choice(LUCKY_ITEMS)}"
+        
+        # 組合回應內容
+        reply_msg = (
+            f"🔮 **【{interaction.user.display_name} 的今日運勢占卜】🔮**\n"
+            f"{stars}\n"
+            f"🍀 幸運物：{lucky_item}\n"
+            f"💬 蜂蜜水說：\n{quote}"
+        )
+        await interaction.response.send_message(reply_msg)
+        
+    else:
+        # --- ⏳ 冷卻中 ---
+        remaining_seconds = int(FORTUNE_COOLDOWN - (current_ts - last_ts))
+        hours, remainder = divmod(remaining_seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        time_str = f"{hours} 小時 {minutes} 分 {seconds} 秒"
+        
+        await interaction.response.send_message(f"🔮 你的命運還在洗牌中... 再等 **{time_str}** 再來問我吧！", ephemeral=True)
 
 @tree.command(name="flipcat", description="召喚後空翻貓貓 (冷卻 30 秒)")
 async def slash_flipcat(interaction: discord.Interaction):
@@ -509,10 +559,9 @@ async def on_message(message):
         return
 
     # ==========================================
-    # 🔮 蜂蜜水占卜功能 (12小時冷卻 + 精確時間)
+    # 🔮 蜂蜜水占卜功能 (更新版：包含幸運物)
     # ==========================================
     if "蜂蜜水" in message.content and "今天的運勢如何" in message.content:
-        # 12 小時 = 43200 秒
         FORTUNE_COOLDOWN = 12 * 60 * 60 
         
         user_id = message.author.id
@@ -522,18 +571,27 @@ async def on_message(message):
         if current_ts - last_ts > FORTUNE_COOLDOWN:
             # --- ✅ 可以占卜 ---
             fortune_cooldowns[user_id] = current_ts 
+            
+            # 👇👇👇 改成新的隨機邏輯 👇👇👇
             quote = random.choice(FORTUNE_QUOTES)
-            reply_msg = f"🔮 **【{message.author.display_name} 的今日運勢占卜】**\n\n{quote}"
+            stars = "⭐" * random.randint(1, 5)
+            lucky_item = f"{random.choice(LUCKY_COLORS)}的{random.choice(LUCKY_ITEMS)}"
+            
+            reply_msg = (
+                f"🔮 **【{message.author.display_name} 的今日運勢占卜】🔮**\n"
+                f"{stars}\n"
+                f"🍀 幸運物：{lucky_item}\n"
+                f"💬 蜂蜜水說：\n{quote}"
+            )
+            # 👆👆👆 修改結束 👆👆👆
+            
             await message.channel.send(reply_msg)
             if is_dm: print(f"📤 [私訊回覆] 占卜結果已發送")
             
         else:
-            # --- ⏳ 冷卻中 (計算時分秒) ---
             remaining_seconds = int(FORTUNE_COOLDOWN - (current_ts - last_ts))
-            
             hours, remainder = divmod(remaining_seconds, 3600)
             minutes, seconds = divmod(remainder, 60)
-            
             time_str = f"{hours} 小時 {minutes} 分 {seconds} 秒"
             await message.channel.send(f"🔮 你的命運還在洗牌中... 再等 **{time_str}** 再來問我吧！")
 
