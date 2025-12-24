@@ -646,6 +646,10 @@ async def slash_duel(interaction: discord.Interaction, opponent: discord.User):
         ("使用平底鍋攻擊", "丟出了樂高積木"),
         ("使出了龜派氣功", "使用了替身攻擊"),
         ("衝上去咬了一口", "用尾巴甩了一巴掌"),
+        ("使用屁屁攻擊", "叫來了銀河餅乾的火車"),
+        ("使用了索命咒", "揮出拳頭"),
+        ("發動了荔枝龍的魅惑", "丟出了決戰偉大之戟"),
+        ("坐在壓路機", "丟出了蜂巢"),
         ("發動嘴遁", "使出星爆氣流斬")
     ]
     move_a, move_b = random.choice(battle_templates)
@@ -672,6 +676,105 @@ async def slash_duel(interaction: discord.Interaction, opponent: discord.User):
     )
 
     await interaction.response.send_message(msg)
+# ==========================================
+# 🎮 更多趣味指令 (無 AI / 純邏輯版)
+# ==========================================
+@tree.command(name="mines", description="玩一場「踩地雷」！(點擊黑框框來玩)")
+async def slash_mines(interaction: discord.Interaction):
+    # 邏輯：生成一個 5x5 的網格，裡面藏著炸彈
+    # 使用 Discord 的 ||內容|| 語法來製作遮罩效果
+    
+    grid_size = 5
+    bomb_count = 5
+    
+    # 建立一個全空的盤面 (0 = 安全, 1 = 炸彈)
+    board = [0] * (grid_size * grid_size)
+    
+    # 隨機放炸彈
+    bomb_indices = random.sample(range(len(board)), bomb_count)
+    for index in bomb_indices:
+        board[index] = 1
+    
+    # 將盤面轉換成 Discord 文字
+    # 💣 = 炸彈, 🍯 = 安全(蜂蜜), 🟦 = 安全(普通)
+    view_text = ""
+    for i in range(grid_size):
+        row_text = ""
+        for j in range(grid_size):
+            index = i * grid_size + j
+            if board[index] == 1:
+                content = "💥" # 炸彈
+            else:
+                # 30% 機率是蜂蜜，其他是藍色方塊
+                content = "🍯" if random.random() < 0.3 else "🟦"
+            
+            # 加上防雷標籤 || ||
+            row_text += f"||{content}|| "
+        view_text += row_text + "\n"
+    
+    msg = (
+        f"💣 **【蜂蜜踩地雷】** 💣\n"
+        f"小心！這片區域埋了 **{bomb_count}** 顆炸彈！\n"
+        f"點擊下方的黑框框來探索：\n\n"
+        f"{view_text}"
+    )
+    
+    await interaction.response.send_message(msg)
+    print(f"💣 [遊戲紀錄] {interaction.user.display_name} 玩了一局踩地雷")
+
+
+@tree.command(name="ask", description="神奇海螺：問蜂蜜水一個 Yes/No 的問題")
+@app_commands.describe(question="你想問的問題")
+async def slash_ask(interaction: discord.Interaction, question: str):
+    # 預設的回答庫
+    answers = [
+        # 正面
+        "是！", "當然囉！", "我覺得行！", "毫無疑問！", "你可以充滿期待！", "百分之百肯定！",
+        # 負面
+        "不。", "別想了。", "不太可能喔...", "我的直覺告訴我不要。", "還是放棄吧。", "很遺憾，不是。",
+        # 模糊/搞怪
+        "我現在不想回答...", "去問小俊，別問我。", "你覺得呢？", "這問題太深奧了...", "再問一次試試？", "🤔"
+    ]
+    
+    chosen_answer = random.choice(answers)
+    
+    # 回覆
+    await interaction.response.send_message(f"❓ **問題：** {question}\n💬 **蜂蜜水：** {chosen_answer}")
+    
+    # 後台紀錄 (看看大家都在問什麼怪問題)
+    print(f"🔮 [神奇海螺] {interaction.user.display_name} 問了：{question} | 回答：{chosen_answer}")
+
+
+@tree.command(name="slap", description="用隨機物品「打」某人一下 (惡搞用)")
+@app_commands.describe(target="你想打的人")
+async def slash_slap(interaction: discord.Interaction, target: discord.User):
+    # 🚫 私訊邏輯：如果私訊打別人，別人看不到，沒意義，擋住 (除非打機器人)
+    if isinstance(interaction.channel, discord.DMChannel) and target.id != client.user.id:
+        await interaction.response.send_message("❌ 私下打人不好玩，去群組打給大家看！", ephemeral=True)
+        return
+
+    # 武器庫
+    weapons = [
+        "一條鹹魚", "平底鍋", "折凳", "巨大的充氣槌", "銀河娃娃", 
+        "濕掉的毛巾", "貓咪肉球", "藍白拖", "鍵盤", "空氣"
+    ]
+    weapon = random.choice(weapons)
+    
+    # 傷害值 (0~9999)
+    damage = random.randint(1, 9999)
+    
+    # 特殊對話
+    if target.id == interaction.user.id:
+        msg = f"🤔 {interaction.user.mention} 撿起 **{weapon}** 狠狠地打了自己一下... 為什麼要這樣？ (傷害：{damage})"
+    elif target.id == client.user.id:
+        msg = f"🛡️ {interaction.user.mention} 試圖用 **{weapon}** 攻擊我，但我閃過了！ (蜂蜜水毫髮無傷)"
+    elif target.id == YOUR_ADMIN_ID:
+         msg = f"😱 {interaction.user.mention} 竟然敢用 **{weapon}** 打創造者小俊？！好大膽子！ (被神之光反彈，自己受到 {damage} 點傷害)"
+    else:
+        msg = f"👊 {interaction.user.mention} 抄起 **{weapon}** 狠狠地巴了 {target.mention} 一下！\n造成了 **{damage}** 點暴擊傷害！"
+
+    await interaction.response.send_message(msg)
+    print(f"👊 [暴力事件] {interaction.user.display_name} 用 {weapon} 攻擊了 {target.display_name}")
 
 @tree.command(name="fortune", description="抽取今日運勢 (冷卻 12 小時)")
 async def slash_fortune(interaction: discord.Interaction):
