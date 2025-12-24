@@ -677,140 +677,239 @@ async def slash_duel(interaction: discord.Interaction, opponent: discord.User):
 
     await interaction.response.send_message(msg)
 # ==========================================
-# 💣 更多遊戲 (踩地雷按鈕互動版 / 以及其他)
+# 💣 蜂蜜踩地雷 (支援單人/多人/VS對戰/以及其他遊戲)
 # ==========================================
 
-# 定義踩地雷的按鈕
+# 1. 定義「接受挑戰」的介面
+class ChallengeView(discord.ui.View):
+    def __init__(self, challenger, opponent):
+        super().__init__(timeout=60) # 60秒沒按就取消
+        self.challenger = challenger
+        self.opponent = opponent
+        self.value = None # True=接受, False=拒絕
+
+    @discord.ui.button(label="接受挑戰", style=discord.ButtonStyle.success)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.opponent.id:
+            await interaction.response.send_message("❌ 這不是給你的挑戰書！", ephemeral=True)
+            return
+        self.value = True
+        self.stop() # 停止監聽，回傳結果
+        await interaction.response.defer() # 避免互動失敗
+
+    @discord.ui.button(label="拒絕", style=discord.ButtonStyle.danger)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.opponent.id:
+            await interaction.response.send_message("❌ 這不是給你的挑戰書！", ephemeral=True)
+            return
+        self.value = False
+        self.stop()
+        await interaction.response.send_message(f"✋ {self.opponent.display_name} 拒絕了這場決鬥。", ephemeral=False)
+
+# 2. 定義踩地雷按鈕
 class MineButton(discord.ui.Button):
     def __init__(self, x, y, view_parent):
-        # 初始樣式：模糊的灰色 (secondary)
         super().__init__(style=discord.ButtonStyle.secondary, label="⬜", row=y)
         self.x = x
         self.y = y
         self.view_parent = view_parent
 
     async def callback(self, interaction: discord.Interaction):
-        # 1. 權限檢查：只有發起遊戲的人能按
-        if interaction.user.id != self.view_parent.player_id:
-            await interaction.response.send_message(f"❌ 這是 {self.view_parent.player_name} 的局，你自己去開一局啦！", ephemeral=True)
+        view = self.view_parent
+        
+        # --- 權限與回合檢查 ---
+        if view.mode == 'solo':
+            if interaction.user.id != view.player_id:
+                await interaction.response.send_message(f"❌ 這是 {view.player_name} 的個人局！", ephemeral=True)
+                return
+
+        elif view.mode == 'vs':
+            # 檢查是否為參賽者
+            if interaction.user.id not in [view.player_id, view.opponent_id]:
+                await interaction.response.send_message("❌ 這是私人決鬥，路人請勿插手！", ephemeral=True)
+                return
+            # 檢查是否輪到這個人
+            if interaction.user.id != view.current_turn_id:
+                await interaction.response.send_message(f"⏳還沒輪到你！現在是 <@{view.current_turn_id}> 的回合。", ephemeral=True)
+                return
+
+        # (Multi 模式不檢查，誰都能按)
+
+        # --- 遊戲邏輯 ---
+        if view.game_over:
+            await interaction.response.send_message("❌ 遊戲已經結束啦！", ephemeral=True)
             return
 
-        # 2. 判斷遊戲是否已經結束
-        if self.view_parent.game_over:
-            return
-
-        # 3. 判斷是否踩到地雷
-        if self.view_parent.board[self.y][self.x] == -1:
-            # 💥 踩到地雷了！
+        # 踩到地雷
+        if view.board[self.y][self.x] == -1:
             self.style = discord.ButtonStyle.danger
             self.label = "💥"
-            self.view_parent.game_over = True
-            
-            # 顯示所有地雷
-            await self.view_parent.reveal_all_mines(interaction, exploded=True)
+            view.game_over = True
+            await view.reveal_all_mines(interaction, exploded=True, trigger_user=interaction.user)
         else:
-            # 🍯 沒踩到，顯示周圍數字
-            mines_nearby = self.view_parent.board[self.y][self.x]
-            self.style = discord.ButtonStyle.success # 變成綠色
+            # 沒踩到
+            mines_nearby = view.board[self.y][self.x]
+            self.style = discord.ButtonStyle.success
+            self.label = "🍯" if mines_nearby == 0 else str(mines_nearby)
+            self.disabled = True
+            view.revealed_count += 1
             
-            if mines_nearby == 0:
-                self.label = "🍯" # 安全 (周圍沒雷)
+            # 檢查勝利
+            if view.revealed_count == (25 - view.bomb_count):
+                view.game_over = True
+                await view.reveal_all_mines(interaction, exploded=False, trigger_user=interaction.user)
             else:
-                self.label = str(mines_nearby) # 顯示數字
-            
-            self.disabled = True # 按過就不能再按
-            self.view_parent.revealed_count += 1
-            
-            # 檢查是否勝利 (總格子 - 地雷數 = 已翻開數)
-            if self.view_parent.revealed_count == (25 - self.view_parent.bomb_count):
-                self.view_parent.game_over = True
-                await self.view_parent.reveal_all_mines(interaction, exploded=False)
-            else:
-                # 還沒結束，更新畫面
-                await interaction.response.edit_message(view=self.view_parent)
+                # 遊戲繼續
+                content_update = ""
+                if view.mode == 'vs':
+                    # VS模式：切換回合
+                    if view.current_turn_id == view.player_id:
+                        view.current_turn_id = view.opponent_id
+                    else:
+                        view.current_turn_id = view.player_id
+                    content_update = f⚔️ **【VS 對決】**\n現在輪到：<@{view.current_turn_id}>\n(小心！踩到雷就輸了)"
+                
+                # 如果是 VS 模式，需要更新文字告訴大家輪到誰
+                if content_update:
+                    await interaction.response.edit_message(content=content_update, view=view)
+                else:
+                    await interaction.response.edit_message(view=view)
 
 
-# 定義遊戲的版面 (View)
+# 3. 遊戲主體 View
 class MinesweeperView(discord.ui.View):
-    def __init__(self, player_id, player_name):
-        super().__init__(timeout=180) # 3分鐘沒玩自動失效
-        self.player_id = player_id
-        self.player_name = player_name
+    def __init__(self, player, mode, opponent=None):
+        super().__init__(timeout=300)
+        self.player_id = player.id
+        self.player_name = player.display_name
+        self.mode = mode # 'solo', 'multi', 'vs'
+        
+        # VS 模式專用參數
+        self.opponent_id = opponent.id if opponent else None
+        self.opponent_name = opponent.display_name if opponent else None
+        self.current_turn_id = self.player_id # 預設發起人先攻
+
         self.game_over = False
         self.revealed_count = 0
-        self.bomb_count = 5 # 設定地雷數量
-        
-        # 初始化 5x5 版面 (0=空, -1=雷)
-        # 用二維陣列儲存數值
-        self.board = [[0 for _ in range(5)] for _ in range(5)]
+        self.bomb_count = 5
+        self.board = [[0]*5 for _ in range(5)]
         self.init_board()
 
-        # 建立 25 個按鈕
         for y in range(5):
             for x in range(5):
                 self.add_item(MineButton(x, y, self))
 
     def init_board(self):
-        # 隨機放地雷
         count = 0
         while count < self.bomb_count:
-            rx = random.randint(0, 4)
-            ry = random.randint(0, 4)
+            rx, ry = random.randint(0, 4), random.randint(0, 4)
             if self.board[ry][rx] != -1:
                 self.board[ry][rx] = -1
                 count += 1
         
-        # 計算每個格子周圍的地雷數
         for y in range(5):
             for x in range(5):
-                if self.board[y][x] == -1:
-                    continue
-                # 檢查周圍 8 格
+                if self.board[y][x] == -1: continue
                 mines = 0
-                for dy in [-1, 0, 1]:
-                    for dx in [-1, 0, 1]:
-                        nx, ny = x + dx, y + dy
-                        if 0 <= nx < 5 and 0 <= ny < 5 and self.board[ny][nx] == -1:
-                            mines += 1
+                for dy in [-1,0,1]:
+                    for dx in [-1,0,1]:
+                        nx, ny = x+dx, y+dy
+                        if 0<=nx<5 and 0<=ny<5 and self.board[ny][nx] == -1: mines+=1
                 self.board[y][x] = mines
 
-    async def reveal_all_mines(self, interaction, exploded):
-        # 遊戲結束，翻開所有格子顯示答案
+    async def reveal_all_mines(self, interaction, exploded, trigger_user):
+        # 翻開所有牌
         for item in self.children:
             if isinstance(item, MineButton):
                 item.disabled = True
                 val = self.board[item.y][item.x]
                 if val == -1:
                     item.label = "💣"
-                    if item.style != discord.ButtonStyle.danger: # 如果不是被踩爆的那顆
-                         item.style = discord.ButtonStyle.secondary
-                elif item.label == "⬜": # 沒翻開的安全格
+                    if item.style != discord.ButtonStyle.danger:
+                        item.style = discord.ButtonStyle.secondary
+                elif item.label == "⬜":
                     item.label = str(val) if val > 0 else "🍯"
                     item.style = discord.ButtonStyle.secondary
 
-        # 決定結束訊息
-        if exploded:
-            msg = f"💥 **BOOM！** {self.player_name} 踩到地雷被炸飛了！(遊戲結束)"
-            print(f"💣 [踩地雷] {self.player_name} 輸了")
-        else:
-            msg = f"🎉 **恭喜通關！** {self.player_name} 成功找出了所有蜂蜜！太強了！"
-            print(f"💣 [踩地雷] {self.player_name} 贏了")
-        
-        self.stop() # 停止監聽
+        # 結算訊息邏輯
+        msg = ""
+        if self.mode == 'vs':
+            if exploded:
+                # 觸發者輸了，另一方贏
+                winner = self.player_name if trigger_user.id == self.opponent_id else self.opponent_name
+                msg = f"💥 **BOOM！** {trigger_user.mention} 踩到地雷自爆了！\n🏆 **獲勝者：{winner}** (太神啦！)"
+            else:
+                msg = f"🤝 **平手！**\n所有地雷都被找出來了，雙方握手言和！"
+        elif self.mode == 'multi':
+            if exploded:
+                msg = f"💣 **多人混戰結束**\n戰犯是 {trigger_user.mention}！他一腳踩爆了地雷！"
+            else:
+                msg = f"🎉 **大成功！**\n大家合力清除了所有地雷！"
+        else: # solo
+            if exploded:
+                msg = f"💥 **挑戰失敗...**\n{self.player_name} 踩到地雷了，幫QQ。"
+            else:
+                msg = f"🎉 **挑戰成功！**\n{self.player_name} 太強了，完美閃避所有地雷！"
+
+        self.stop()
         await interaction.response.edit_message(content=msg, view=self)
 
+# 4. 註冊指令
+@tree.command(name="mines", description="踩地雷遊戲 (單人/多人/VS對戰)")
+@app_commands.describe(opponent="VS模式的對手 (選其他模式請留空)")
+@app_commands.choices(mode=[
+    app_commands.Choice(name="個人挑戰 (Solo)", value="solo"),
+    app_commands.Choice(name="多人混戰 (Multi)", value="multi"),
+    app_commands.Choice(name="1v1 對決 (VS)", value="vs")
+])
+async def slash_mines(interaction: discord.Interaction, mode: app_commands.Choice[str], opponent: discord.User = None):
+    # 檢查：如果選 VS 但沒選人
+    if mode.value == "vs":
+        # 🚫 私訊不支援 VS (因為無法 Tag 別人按按鈕)
+        if isinstance(interaction.channel, discord.DMChannel):
+            await interaction.response.send_message("❌ VS 模式需要觀眾！請去群組玩。", ephemeral=True)
+            return
+            
+        if opponent is None:
+            await interaction.response.send_message("❌ VS 模式必須指定對手！(請在 opponent 欄位選擇成員)", ephemeral=True)
+            return
+        if opponent.bot or opponent.id == interaction.user.id:
+            await interaction.response.send_message("❌ 你不能跟機器人或自己對決啦！", ephemeral=True)
+            return
+            
+        # --- 發送挑戰書 ---
+        challenge_view = ChallengeView(interaction.user, opponent)
+        await interaction.response.send_message(
+            f"⚔️ **【決鬥邀請】**\n{interaction.user.mention} 向 {opponent.mention} 發起了踩地雷對決！\n敢接受嗎？",
+            view=challenge_view
+        )
+        
+        # 等待按鈕結果
+        await challenge_view.wait()
+        
+        if challenge_view.value: # 對方接受
+            game_view = MinesweeperView(interaction.user, 'vs', opponent)
+            await interaction.edit_original_response(
+                content=f"⚔️ **【VS 對決開始】**\n{interaction.user.mention} 🆚 {opponent.mention}\n由發起人 <@{interaction.user.id}> 先攻！",
+                view=game_view
+            )
+        else:
+            # 對方拒絕或超時，訊息已在 View 處理或保持原樣
+            pass
 
-@tree.command(name="mines", description="玩一場真實的「踩地雷」！(按鈕互動版)")
-async def slash_mines(interaction: discord.Interaction):
-    # 建立遊戲 View
-    view = MinesweeperView(interaction.user.id, interaction.user.display_name)
-    
-    await interaction.response.send_message(
-        f"💣 **【蜂蜜踩地雷】** 挑戰者：{interaction.user.mention}\n"
-        f"小心！裡面藏了 **5** 顆地雷！\n"
-        f"點擊按鈕來挖掘，數字代表周圍有幾顆雷。\n(只有你可以玩喔！)",
-        view=view
-    )
+    else:
+        # Solo 或 Multi 模式
+        game_view = MinesweeperView(interaction.user, mode.value)
+        
+        if mode.value == 'multi':
+            title = "💣 **【多人踩地雷】** (所有人都能按，誰踩到誰輸)"
+        else:
+            title = f"💣 **【個人挑戰】** (挑戰者：{interaction.user.mention})"
+            
+        await interaction.response.send_message(
+            f"{title}\n共 5 顆地雷，開始挖掘吧！",
+            view=game_view
+        )
 
 @tree.command(name="ask", description="神奇海螺：問蜂蜜水一個 Yes/No 的問題")
 @app_commands.describe(question="你想問的問題")
