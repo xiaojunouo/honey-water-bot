@@ -676,8 +676,9 @@ async def slash_duel(interaction: discord.Interaction, opponent: discord.User):
     )
 
     await interaction.response.send_message(msg)
+    
 # ==========================================
-# 💣 蜂蜜踩地雷 (支援單人/多人/VS對戰/以及其他遊戲)
+# 💣 蜂蜜踩地雷 (支援 單人/多人/VS對戰)
 # ==========================================
 
 # 1. 定義「接受挑戰」的介面
@@ -767,7 +768,7 @@ class MineButton(discord.ui.Button):
                         view.current_turn_id = view.opponent_id
                     else:
                         view.current_turn_id = view.player_id
-                    content_update = f⚔️ **【VS 對決】**\n現在輪到：<@{view.current_turn_id}>\n(小心！踩到雷就輸了)"
+                    content_update = f"⚔️ **【VS 對決】**\n現在輪到：<@{view.current_turn_id}>\n(小心！踩到雷就輸了)"
                 
                 # 如果是 VS 模式，需要更新文字告訴大家輪到誰
                 if content_update:
