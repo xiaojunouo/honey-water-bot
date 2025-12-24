@@ -741,10 +741,10 @@ async def slash_pick(interaction: discord.Interaction, options: str):
     await interaction.followup.send(f"👈 **蜂蜜水幫你選：** `{selected}`\n\n💬 **理由：** {reason}")
 
 # ==========================================
-# 🍪 餅乾與商人系統
+# 🍪 餅乾與裝備系統 (中文化 / 私訊支援)
 # ==========================================
 
-# 1. 餅乾管理介面
+# 1. 餅乾管理介面 (穿脫裝備)
 class CookieView(discord.ui.View):
     def __init__(self, user_id):
         super().__init__(timeout=60)
@@ -803,8 +803,9 @@ class CookieView(discord.ui.View):
         save_data()
         await interaction.response.send_message(f"✅ 已脫下 **{current_equip}** 放回背包。", ephemeral=True)
 
-@tree.command(name="mycookie", description="查看與養成你的戰鬥餅乾")
-async def slash_mycookie(interaction: discord.Interaction):
+# 指令：我的餅乾 (查看與養成)
+@tree.command(name="我的餅乾", description="查看與養成你的戰鬥餅乾 (支援私訊)")
+async def slash_my_cookie(interaction: discord.Interaction):
     uid = str(interaction.user.id)
     init_user(uid)
     
@@ -829,16 +830,22 @@ async def slash_mycookie(interaction: discord.Interaction):
     embed.add_field(name="名稱", value=c_data["name"], inline=True)
     embed.add_field(name="戰鬥力", value=f"❤️ HP: {base_hp}\n⚔️ ATK: {base_atk}\n🎯 CRIT: {base_crit}%", inline=True)
     embed.add_field(name="目前裝備", value=bonus_text, inline=False)
-    embed.set_footer(text="參加 /duel 決鬥可以讓餅乾更強！")
+    embed.set_footer(text="私訊也可以使用此指令來管理裝備喔！")
     
     await interaction.response.send_message(embed=embed, view=CookieView(interaction.user.id))
 
-@tree.command(name="renamecookie", description="幫你的餅乾改名")
-async def slash_renamecookie(interaction: discord.Interaction, name: str):
+# 指令：重新命名餅乾
+@tree.command(name="我的餅乾重新命名", description="幫你的餅乾改名 (支援私訊)")
+async def slash_rename_cookie(interaction: discord.Interaction, name: str):
     uid = str(interaction.user.id)
     init_user(uid)
+    old_name = user_data[uid]["cookie"]["name"]
     user_data[uid]["cookie"]["name"] = name
     save_data()
+    
+    # 🟢 後台紀錄
+    print(f"✏️ [改名紀錄] {interaction.user.display_name} 將餅乾從 [{old_name}] 改為 [{name}]")
+    
     await interaction.response.send_message(f"✅ 餅乾的新名字是 **{name}**！好聽！")
 
 # 2. 蜂蜜商人介面 (修正：別人不能亂按)
@@ -919,7 +926,7 @@ class MerchantView(discord.ui.View):
             user_data[uid]["coins"] += cost
             save_data()
 
-@tree.command(name="merchant", description="找蜂蜜商人：販售裝備或購買特殊服務")
+@tree.command(name="我的餅乾商店", description="找蜂蜜商人：販售裝備或購買特殊服務")
 async def slash_merchant(interaction: discord.Interaction):
     uid = str(interaction.user.id)
     init_user(uid)
@@ -940,7 +947,7 @@ async def slash_bag(interaction: discord.Interaction):
     items = user_data[uid]["inventory"]
     
     if not items:
-        await interaction.response.send_message("🎒 你的背包空空如也... 快去 `/duel` 或 `/slots` 刷裝備吧！", ephemeral=True)
+        await interaction.response.send_message("🎒 你的背包空空如也... 快去 `/我的餅乾決鬥` 或 `/slots` 刷裝備吧！", ephemeral=True)
         return
 
     # 整理列表
@@ -1050,7 +1057,7 @@ async def slash_russian(interaction: discord.Interaction):
         await interaction.followup.send(f"☁️ *喀嚓...*\n{interaction.user.mention} 運氣不錯，是空包彈！")
 
 # ==========================================
-# ⚔️ 決鬥系統 3.0 (套用餅乾數值)
+# ⚔️ 決鬥系統 3.0 (含難度掉寶率/私訊限制修正版)
 # ==========================================
 duel_cooldowns = {} 
 
@@ -1069,21 +1076,62 @@ def get_user_stats(uid):
         stats["crit"] += bonus["crit"]
     return stats
 
+def get_bot_stats(difficulty):
+    if difficulty == "simple":
+        return {"hp": 800, "atk": 50, "crit": 0, "name": "弱弱的蜂蜜水"}
+    elif difficulty == "hard":
+        return {"hp": 3000, "atk": 250, "crit": 20, "name": "🔥 覺醒蜂蜜水 🔥"}
+    else: # normal
+        return {"hp": 1500, "atk": 120, "crit": 5, "name": "機械蜂蜜水"}
+
 def draw_hp_bar(current, max_hp, length=10):
     percent = max(0, min(current / max_hp, 1))
     filled = int(length * percent)
     bar_char = "🟩" if percent > 0.6 else "🟨" if percent > 0.2 else "🟥"
     return bar_char * filled + "⬜" * (length - filled)
 
+# 決鬥挑戰書
+class DuelChallengeView(discord.ui.View):
+    def __init__(self, challenger, opponent):
+        super().__init__(timeout=60)
+        self.challenger = challenger
+        self.opponent = opponent
+        self.value = None
+
+    @discord.ui.button(label="接受挑戰", style=discord.ButtonStyle.success, emoji="⚔️")
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.opponent.id:
+            await interaction.response.send_message("❌ 這不是給你的挑戰書！", ephemeral=True)
+            return
+        self.value = True
+        self.stop()
+        await interaction.response.defer()
+
+    @discord.ui.button(label="拒絕", style=discord.ButtonStyle.danger, emoji="🏳️")
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.opponent.id:
+            await interaction.response.send_message("❌ 這不是給你的挑戰書！", ephemeral=True)
+            return
+        self.value = False
+        self.stop()
+        await interaction.response.send_message(f"✋ {self.opponent.display_name} 拒絕了這場決鬥。", ephemeral=False)
+
+# 戰鬥主視窗
 class DuelView(discord.ui.View):
-    def __init__(self, p1, p2):
-        super().__init__(timeout=300)
+    def __init__(self, p1, p2, difficulty="normal", is_dm=False):
+        super().__init__(timeout=60)
         self.p1 = p1
         self.p2 = p2
+        self.message = None
+        
+        self.difficulty = difficulty # 紀錄難度
+        self.is_dm = is_dm         # 紀錄是否為私訊
         
         self.s1 = get_user_stats(p1.id)
+        
+        # 根據難度設定機器人數值
         if p2.bot:
-            self.s2 = {"hp": 1500, "atk": 120, "crit": 5, "name": "機械蜂蜜水"}
+            self.s2 = get_bot_stats(difficulty)
         else:
             self.s2 = get_user_stats(p2.id)
             
@@ -1091,7 +1139,7 @@ class DuelView(discord.ui.View):
         self.max_hp = {p1.id: self.s1["hp"], p2.id: self.s2["hp"]}
         
         self.turn = p1.id 
-        self.logs = ["⚔️ **戰鬥開始！** 餅乾們準備好了..."] 
+        self.logs = ["⚔️ **戰鬥開始！**"] 
         self.winner = None
         self.is_pve = p2.bot
 
@@ -1109,8 +1157,19 @@ class DuelView(discord.ui.View):
         if self.winner: embed.set_footer(text=f"🏆 獲勝者：{self.winner.display_name}")
         else:
             turn_name = self.p1.display_name if self.turn == self.p1.id else self.p2.display_name
-            embed.set_footer(text=f"👉 現在輪到：{turn_name}")
+            embed.set_footer(text=f"👉 現在輪到：{turn_name} (剩餘 60 秒)")
         return embed
+
+    async def on_timeout(self):
+        loser_id = self.turn
+        if loser_id == self.p1.id:
+            self.winner = self.p2
+            loser = self.p1
+        else:
+            self.winner = self.p1
+            loser = self.p2
+        self.logs.append(f"💤 **超時判負！** {loser.display_name} 發呆太久，直接棄權！")
+        await self.end_game(None, loser=loser, reason="timeout")
 
     def calculate_damage(self, attacker_id, defender_id, is_special):
         stats = self.s1 if attacker_id == self.p1.id else self.s2
@@ -1133,20 +1192,15 @@ class DuelView(discord.ui.View):
         else:
             weapons = ["雜燴烤派的攪拌棒", "殭屍的腦袋", "玫瑰鹽的鹹魚", "風箭手的箭矢", "萊姆的排球", "金牛座的大槌", "銀河列車"]
             weapon = random.choice(weapons)
-
-            # 傷害公式：ATK * 0.8~1.2
             damage = int(base_dmg * random.uniform(0.8, 1.2))
-            
-            # 暴擊判定 (看 CRIT 數值)
             if dice <= crit_rate:
                 damage = int(damage * 1.5)
                 log_msg = f"⚡ **{attacker_name}** 撿起 **{weapon}** 暴擊！造成 **{damage}** 傷害！"
-            elif dice > 95: # 失誤
+            elif dice > 95:
                 damage = 0
                 log_msg = f"😵 **{attacker_name}** 拿 **{weapon}** 攻擊時滑倒了！(MISS)"
             else:
                 log_msg = f"👊 **{attacker_name}** 用 **{weapon}** 攻擊！造成 **{damage}** 傷害。"
-        
         return damage, log_msg
 
     async def handle_attack(self, interaction, is_special=False):
@@ -1166,7 +1220,7 @@ class DuelView(discord.ui.View):
         if self.hp[defender.id] <= 0:
             self.hp[defender.id] = 0
             self.winner = attacker
-            await self.end_game(interaction, loser=defender)
+            await self.end_game(interaction, loser=defender, reason="kill")
             return
 
         if self.is_pve:
@@ -1179,36 +1233,77 @@ class DuelView(discord.ui.View):
             if self.hp[player.id] <= 0:
                 self.hp[player.id] = 0
                 self.winner = bot
-                await self.end_game(interaction, loser=player)
+                await self.end_game(interaction, loser=player, reason="kill")
                 return
             await interaction.response.edit_message(embed=self.get_battle_embed(), view=self)
         else:
             self.turn = defender.id
             await interaction.response.edit_message(embed=self.get_battle_embed(), view=self)
 
-    async def end_game(self, interaction, loser):
+    async def end_game(self, interaction, loser, reason="normal"):
         winner = self.winner
         loot_msg = ""
+        log_loot = "無"
         
-        if winner.bot or loser.bot:
-            loot_msg = "\n🤖 (機器人沒有掉落物...)"
+        # === 掉寶判斷邏輯 (修改重點) ===
+        can_drop = False
+        drop_chance = 0.5 # 預設真人對打 50%
+
+        if winner.bot:
+            # 機器人贏了：不掉寶
+            loot_msg = "\n🤖 (被機器人打敗，什麼都沒拿到...)"
+        elif loser.bot:
+            # 玩家贏了機器人
+            if self.is_dm:
+                # 私訊：不掉寶
+                loot_msg = "\n🚫 (私訊練習模式不掉落戰利品)"
+                can_drop = False
+            else:
+                # 群組：依難度決定掉寶率
+                can_drop = True
+                if self.difficulty == "simple": drop_chance = 0.2    # 簡單 20%
+                elif self.difficulty == "hard": drop_chance = 0.8    # 困難 80%
+                else: drop_chance = 0.5                              # 普通 50%
         else:
-            if random.random() < 0.5:
+            # 真人 PvP
+            can_drop = True
+            drop_chance = 0.5 # 玩家對打固定 50%
+
+        # 執行掉落
+        if can_drop:
+            if random.random() < drop_chance:
                 loot = generate_loot(loser.display_name)
                 init_user(str(winner.id))
                 u_inv = user_data[str(winner.id)]["inventory"]
                 if len(u_inv) < 20:
                     u_inv.append(loot)
                     save_data()
-                    loot_msg = f"\n🎁 **掉寶！**\n{loser.display_name} 噴出了 **{loot}**！"
+                    loot_msg = f"\n🎁 **掉寶！(機率:{int(drop_chance*100)}%)**\n{loser.display_name} 噴出了 **{loot}**！"
+                    log_loot = loot
                 else:
                     loot_msg = f"\n🎁 掉寶了...但 {winner.display_name} 背包滿了！"
+                    log_loot = f"{loot} (背包滿)"
             else:
-                loot_msg = f"\n💨 什麼都沒掉..."
+                loot_msg = f"\n💨 什麼都沒掉... (機率:{int(drop_chance*100)}%)"
 
-        self.logs.append(f"🏆 **勝負已分！** {winner.display_name} 獲勝！")
+        if reason == "surrender":
+            self.logs.append(f"🏳️ **戰鬥結束！** {loser.display_name} 選擇投降！")
+        elif reason == "timeout":
+            pass 
+        else:
+            self.logs.append(f"🏆 **勝負已分！** {winner.display_name} 獲勝！")
+
+        print(f"⚔️ [決鬥紀錄] 勝: {winner.display_name} | 敗: {loser.display_name} | 原因: {reason} | 掉寶: {log_loot}")
+
         for child in self.children: child.disabled = True
-        await interaction.response.edit_message(content=loot_msg, embed=self.get_battle_embed(), view=self)
+        
+        if interaction:
+            await interaction.response.edit_message(content=loot_msg, embed=self.get_battle_embed(), view=self)
+        elif self.message:
+            try:
+                await self.message.edit(content=loot_msg, embed=self.get_battle_embed(), view=self)
+            except Exception as e:
+                print(f"❌ 無法更新超時訊息: {e}")
         self.stop()
 
     @discord.ui.button(label="攻擊", style=discord.ButtonStyle.danger, emoji="⚔️")
@@ -1219,57 +1314,161 @@ class DuelView(discord.ui.View):
         await self.handle_attack(interaction, is_special=True)
     @discord.ui.button(label="投降", style=discord.ButtonStyle.secondary, emoji="🏳️")
     async def surrender_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        pass # 省略
+        if interaction.user.id not in [self.p1.id, self.p2.id]:
+            await interaction.response.send_message("❌ 路人請勿干擾比賽！", ephemeral=True)
+            return
+        loser = interaction.user
+        self.winner = self.p2 if loser.id == self.p1.id else self.p1
+        await self.end_game(interaction, loser, reason="surrender")
 
-@tree.command(name="duel", description="餅乾大亂鬥 3.0 (數值養成版)")
-@app_commands.describe(opponent="對手", mode="模式")
-@app_commands.choices(mode=[
-    app_commands.Choice(name="回合制 (手動)", value="turn"),
-    app_commands.Choice(name="快速戰 (秒殺)", value="quick")
-])
-async def slash_duel(interaction: discord.Interaction, mode: app_commands.Choice[str], opponent: discord.User = None):
+# 指令：決鬥 (中文化 / 難度)
+@tree.command(name="我的餅乾決鬥", description="餅乾大亂鬥 (私訊不掉寶，群組打BOSS掉寶率提升)")
+@app_commands.describe(opponent="對手 (不填則跟蜂蜜水打)", mode="模式", difficulty="跟機器人打的難度 (對真人無效)")
+@app_commands.choices(
+    mode=[
+        app_commands.Choice(name="回合制 (手動/需同意)", value="turn"),
+        app_commands.Choice(name="快速戰 (秒殺/偷襲)", value="quick")
+    ],
+    difficulty=[
+        app_commands.Choice(name="簡單 (掉寶率20%)", value="simple"),
+        app_commands.Choice(name="普通 (掉寶率50%)", value="normal"),
+        app_commands.Choice(name="困難 (掉寶率80%)", value="hard")
+    ]
+)
+async def slash_duel(
+    interaction: discord.Interaction, 
+    mode: app_commands.Choice[str], 
+    difficulty: app_commands.Choice[str] = None, 
+    opponent: discord.User = None
+):
+    # 預設難度為普通
+    diff_val = difficulty.value if difficulty else "normal"
+    # 偵測是否為私訊
+    is_dm_channel = isinstance(interaction.channel, discord.DMChannel)
+
+    # 1. 對手設定
     if opponent is None: opponent = interaction.client.user
-    if isinstance(interaction.channel, discord.DMChannel) and not opponent.bot:
-        await interaction.response.send_message("❌ 私訊只能跟機器人打！", ephemeral=True)
-        return
+
+    # 2. 私訊限制檢查
+    if is_dm_channel:
+        if not opponent.bot:
+            await interaction.response.send_message("❌ 私訊模式下，只能跟蜂蜜水(機器人)決鬥喔！", ephemeral=True)
+            return
+
     if opponent.id == interaction.user.id:
-        await interaction.response.send_message("❌ 不能打自己", ephemeral=True)
+        await interaction.response.send_message("❌ 不能打自己 (會痛)", ephemeral=True)
         return
 
+    # 3. 冷卻檢查
     COOLDOWN_SEC = 120
     uid = interaction.user.id
     now = time.time()
     if uid in duel_cooldowns and (now - duel_cooldowns[uid] < COOLDOWN_SEC):
-        await interaction.response.send_message(f"⏳ 休息一下 ({int(COOLDOWN_SEC - (now - duel_cooldowns[uid]))}s)", ephemeral=True)
+        await interaction.response.send_message(f"⏳ 休息一下，餅乾還在喘 ({int(COOLDOWN_SEC - (now - duel_cooldowns[uid]))}s)", ephemeral=True)
         return
-    duel_cooldowns[uid] = now
-
+    
+    # 4. 模式分支
     if mode.value == "quick":
+        # === 快速戰 (偷襲) ===
+        duel_cooldowns[uid] = now
+        
         s1 = get_user_stats(interaction.user.id)
-        s2 = {"hp": 1500, "atk": 120, "crit": 5} if opponent.bot else get_user_stats(opponent.id)
+        
+        # 根據難度設定機器人數值
+        if opponent.bot:
+            s2 = get_bot_stats(diff_val)
+        else:
+            s2 = get_user_stats(opponent.id)
+        
         power1 = s1["hp"] + s1["atk"] * 10
         power2 = s2["hp"] + s2["atk"] * 10
         score1 = power1 * random.uniform(0.8, 1.2)
         score2 = power2 * random.uniform(0.8, 1.2)
+        
         winner = interaction.user if score1 > score2 else opponent
         loser = opponent if winner == interaction.user else interaction.user
         
         loot_msg = "💨 沒掉東西"
-        if not winner.bot and not loser.bot:
-            if random.random() < 0.5:
-                loot = generate_loot(loser.display_name)
-                init_user(str(winner.id))
-                user_data[str(winner.id)]["inventory"].append(loot)
-                save_data()
-                loot_msg = f"🎁 掉落：**{loot}**"
+        log_loot = "無"
+        
+        # === 快速戰掉寶邏輯 ===
+        drop_chance = 0.0
+        
+        if winner.bot:
+            drop_chance = 0 # 輸給機器人
+        elif loser.bot:
+            # 贏了機器人
+            if is_dm_channel:
+                drop_chance = 0 # 私訊不掉
+                loot_msg = "💨 (私訊練習不掉寶)"
+            else:
+                # 群組依難度
+                if diff_val == "simple": drop_chance = 0.2
+                elif diff_val == "hard": drop_chance = 0.8
+                else: drop_chance = 0.5
+        else:
+            # 真人對打
+            drop_chance = 0.5 # 調整回 50% 比較合理 (原本0.25偏低)
 
-        await interaction.response.send_message(f"⚡ **【快速決鬥】**\n🔴 {interaction.user.display_name}: {int(score1)}\n🔵 {opponent.display_name}: {int(score2)}\n🏆 **{winner.display_name} 獲勝！**\n{loot_msg}")
+        if random.random() < drop_chance:
+            loot = generate_loot(loser.display_name)
+            init_user(str(winner.id))
+            u_inv = user_data[str(winner.id)]["inventory"]
+            if len(u_inv) < 20:
+                u_inv.append(loot)
+                save_data()
+                loot_msg = f"🎁 **偷襲成功！掉落：{loot}**"
+                log_loot = loot
+            else:
+                loot_msg = "💨 (掉寶了但背包滿了)"
+        elif drop_chance > 0:
+            loot_msg = f"💨 (運氣不好沒掉寶)"
+        
+        print(f"⚔️ [決鬥紀錄/快速] 勝: {winner.display_name} | 敗: {loser.display_name} | 掉寶: {log_loot}")
+        
+        diff_text = f"(難度:{diff_val})" if opponent.bot else ""
+        await interaction.response.send_message(
+            f"⚡ **【快速決鬥】** {diff_text}\n"
+            f"🔴 {interaction.user.display_name}: {int(score1)}\n"
+            f"🔵 {opponent.display_name}: {int(score2)}\n"
+            f"🏆 **{winner.display_name} 獲勝！**\n{loot_msg}"
+        )
+
     else:
-        view = DuelView(interaction.user, opponent)
-        await interaction.response.send_message(embed=view.get_battle_embed(), view=view)
+        # === 一般制 (回合制) ===
+        if opponent.bot:
+            duel_cooldowns[uid] = now
+            # 傳入難度參數 與 DM 狀態
+            view = DuelView(interaction.user, opponent, difficulty=diff_val, is_dm=is_dm_channel)
+            await interaction.response.send_message(embed=view.get_battle_embed(), view=view)
+            view.message = await interaction.original_response()
+            return
+
+        # 真人對戰 (不支援難度設定，且需挑戰書)
+        if difficulty is not None:
+             await interaction.response.send_message("⚠️ 跟真人對打無法設定難度喔！(已忽略)", ephemeral=True)
+             
+        challenge_view = DuelChallengeView(interaction.user, opponent)
+        await interaction.response.send_message(
+            f"⚔️ **【決鬥挑戰】**\n{interaction.user.mention} 想要和 {opponent.mention} 進行餅乾決鬥！\n(雙方同意後開始，掉寶率正常)",
+            view=challenge_view
+        )
+        
+        await challenge_view.wait()
+        
+        if challenge_view.value is True:
+            duel_cooldowns[uid] = now
+            view = DuelView(interaction.user, opponent, is_dm=is_dm_channel) # 真人對打預設 normal
+            await interaction.edit_original_response(content="✅ **挑戰接受！戰鬥開始！**", embed=view.get_battle_embed(), view=view)
+            view.message = await interaction.original_response()
+            
+        elif challenge_view.value is False:
+            pass
+        else:
+            await interaction.edit_original_response(content=f"💤 {opponent.mention} 睡著了，挑戰自動取消。", view=None)
 
 # ==========================================
-# 💣 蜂蜜踩地雷 (支援 單人/多人/VS人/VS機器人)
+# 💣 蜂蜜踩地雷 (3.0 掉寶更新版)
 # ==========================================
 
 # 1. 定義「接受挑戰」的介面 (VS 玩家用)
@@ -1335,7 +1534,6 @@ class MineButton(discord.ui.Button):
         # (Multi 模式不檢查，誰都能按)
 
         # --- B. 處理玩家點擊邏輯 ---
-        # 先回應 interaction 避免超時，並更新按鈕狀態
         await view.process_turn(interaction, self, user)
 
 
@@ -1346,7 +1544,7 @@ class MinesweeperView(discord.ui.View):
         self.player_id = player.id
         self.player_name = player.display_name
         self.mode = mode 
-        self.message = None # 用來存儲訊息物件，以便後續編輯
+        self.message = None # 用來存儲訊息物件
         
         # VS 模式參數
         self.opponent_id = opponent.id if opponent else None
@@ -1369,7 +1567,6 @@ class MinesweeperView(discord.ui.View):
             for x in range(5):
                 self.add_item(MineButton(x, y, self))
 
-        # 🟢 Log: 遊戲開始紀錄
         log_mode = f"VS {self.opponent_name}" if mode == 'vs' else mode.upper()
         print(f"💣 [踩地雷/開始] {self.player_name} 開啟了 [{log_mode}] 模式")
 
@@ -1393,19 +1590,15 @@ class MinesweeperView(discord.ui.View):
                 self.board[y][x] = mines
 
     async def on_timeout(self):
-        # 🟢 5分鐘超時處理
         if not self.game_over:
             self.game_over = True
             for child in self.children:
-                child.disabled = True # 鎖死所有按鈕
-            
-            # 編輯訊息 (需要 try catch 避免訊息已被刪除)
+                child.disabled = True
             try:
                 if self.message:
                     await self.message.edit(content=f"⏳ **遊戲超時！** (已超過 5 分鐘)\n這局遊戲強制結束。", view=self)
             except:
                 pass
-            
             print(f"💣 [踩地雷/超時] {self.player_name} 的遊戲因超時而結束")
 
 
@@ -1431,44 +1624,32 @@ class MinesweeperView(discord.ui.View):
             if self.revealed_count == (25 - self.bomb_count):
                 self.game_over = True
 
-        # 2. 如果是人類操作，透過 interaction 更新畫面
+        # 2. 更新畫面或結算
         if interaction:
             if self.game_over:
                 await self.reveal_all_mines(interaction, exploded=hit_bomb, trigger_user=user)
             else:
-                # 遊戲繼續：如果是 VS 模式，切換回合
                 content_update = None
                 if self.mode == 'vs':
-                    # 切換對象
                     self.current_turn_id = self.opponent_id if self.current_turn_id == self.player_id else self.player_id
                     next_player_mention = f"<@{self.current_turn_id}>"
                     content_update = f"⚔️ **【VS 對決】**\n現在輪到：{next_player_mention}\n(小心！踩到雷就輸了)"
 
                 await interaction.response.edit_message(content=content_update, view=self)
                 
-                # 🟡 特殊邏輯：如果是 VS 機器人，且現在輪到機器人，觸發機器人行動
+                # 若輪到機器人，觸發 AI
                 if not self.game_over and self.is_vs_bot and self.current_turn_id == self.opponent_id:
-                    # 這裡使用 asyncio.create_task 避免卡住
                     asyncio.create_task(self.bot_move_logic())
 
     async def bot_move_logic(self):
         """機器人的 AI 邏輯"""
-        await asyncio.sleep(1.5) # 假裝思考時間
-
-        # 找出所有還沒按過的按鈕
+        await asyncio.sleep(1.5)
         available_buttons = [child for child in self.children if isinstance(child, MineButton) and not child.disabled]
-        
-        if not available_buttons or self.game_over:
-            return
+        if not available_buttons or self.game_over: return
 
-        # 隨機選一個 (AI 策略：純隨機，運氣流)
         choice_btn = random.choice(available_buttons)
-        
-        # 機器人沒有 interaction，所以我們直接傳 None，並在最後用 self.message.edit 更新
-        # 虛擬一個 bot user 物件 (借用 opponent 的資訊)
         bot_user_mock = type('obj', (object,), {'id': self.opponent_id, 'display_name': self.opponent_name, 'mention': f'<@{self.opponent_id}>'})
         
-        # 執行點擊邏輯 (複製 process_turn 的核心，但改為 edit message)
         hit_bomb = False
         if self.board[choice_btn.y][choice_btn.x] == -1:
             choice_btn.style = discord.ButtonStyle.danger
@@ -1484,19 +1665,15 @@ class MinesweeperView(discord.ui.View):
             if self.revealed_count == (25 - self.bomb_count):
                 self.game_over = True
 
-        # 更新畫面
         if self.game_over:
-            # 結算
             await self.reveal_all_mines(None, exploded=hit_bomb, trigger_user=bot_user_mock)
         else:
-            # 換回玩家
             self.current_turn_id = self.player_id
             content_update = f"⚔️ **【VS 對決】**\n🤖 蜂蜜水選了... 安全！\n現在輪到：<@{self.player_id}>\n(小心！踩到雷就輸了)"
             try:
                 await self.message.edit(content=content_update, view=self)
             except:
                 pass
-
 
     async def reveal_all_mines(self, interaction, exploded, trigger_user):
         # 翻開所有牌
@@ -1512,18 +1689,44 @@ class MinesweeperView(discord.ui.View):
                     item.label = str(val) if val > 0 else "🍯"
                     item.style = discord.ButtonStyle.secondary
 
-        # 結算訊息
+        # 結算與掉寶邏輯
         msg = ""
         log_result = ""
+        loot_msg = ""
         
         if self.mode == 'vs':
+            # 判斷輸贏
             if exploded:
-                winner = self.player_name if trigger_user.id == self.opponent_id else self.opponent_name
-                msg = f"💥 **BOOM！** {trigger_user.mention} 踩到地雷自爆了！\n🏆 **獲勝者：{winner}** (太神啦！)"
-                log_result = f"{trigger_user.display_name} 踩雷, {winner} 獲勝"
+                loser = trigger_user
+                winner_id = self.player_id if trigger_user.id == self.opponent_id else self.opponent_id
+                # 取得勝者名稱 (因為 winner_id 只是 ID，需反推名稱)
+                winner_name = self.player_name if winner_id == self.player_id else self.opponent_name
+                
+                msg = f"💥 **BOOM！** {loser.mention} 踩到地雷自爆了！\n🏆 **獲勝者：{winner_name}**"
+                log_result = f"{loser.display_name} 踩雷, {winner_name} 獲勝"
+                
+                # --- 掉寶判定 (VS Human 且 exploded 才有輸贏) ---
+                if not self.is_vs_bot:
+                    # 真人對戰：50% 掉寶
+                    if random.random() < 0.5:
+                        loot = generate_loot(loser.display_name)
+                        init_user(str(winner_id))
+                        inv = user_data[str(winner_id)]["inventory"]
+                        if len(inv) < 20:
+                            inv.append(loot)
+                            save_data()
+                            loot_msg = f"\n\n🎁 **掉寶！**\n{loser.display_name} 噴出了 **{loot}**！"
+                        else:
+                            loot_msg = f"\n\n🎁 掉寶了...但背包滿了！"
+                    else:
+                        loot_msg = f"\n\n💨 (沒掉寶)"
+                else:
+                    # VS 機器人：不掉寶
+                    loot_msg = "\n\n🤖 (與機器人對戰不掉落戰利品)"
             else:
                 msg = f"🤝 **平手！**\n所有地雷都被找出來了，雙方握手言和！"
                 log_result = "平手"
+                loot_msg = "\n(平手不掉寶)"
         
         elif self.mode == 'multi':
             if exploded:
@@ -1541,18 +1744,17 @@ class MinesweeperView(discord.ui.View):
                 msg = f"🎉 **挑戰成功！**\n{self.player_name} 太強了，完美閃避所有地雷！"
                 log_result = "成功"
 
-        # 🟢 Log: 遊戲結束紀錄
         print(f"💣 [踩地雷/結束] 模式:{self.mode} | 結果:{log_result}")
 
         # 傳送最終結果
+        final_content = msg + loot_msg
         if interaction:
-            await interaction.response.edit_message(content=msg, view=self)
+            await interaction.response.edit_message(content=final_content, view=self)
         elif self.message:
-            # 機器人觸發結束時，因為沒有 interaction，所以用 message edit
-            await self.message.edit(content=msg, view=self)
+            await self.message.edit(content=final_content, view=self)
 
 
-@tree.command(name="mines", description="踩地雷遊戲 (單人/多人/VS對戰)")
+@tree.command(name="mines", description="踩地雷遊戲 (真人VS真人會掉寶，VS機器人不掉寶)")
 @app_commands.describe(opponent="VS模式的對手 (不填則預設為蜂蜜水)")
 @app_commands.choices(mode=[
     app_commands.Choice(name="個人挑戰 (Solo)", value="solo"),
@@ -1562,11 +1764,12 @@ class MinesweeperView(discord.ui.View):
 async def slash_mines(interaction: discord.Interaction, mode: app_commands.Choice[str], opponent: discord.User = None):
     # VS 模式邏輯
     if mode.value == "vs":
-        if isinstance(interaction.channel, discord.DMChannel):
-            await interaction.response.send_message("❌ VS 模式需要觀眾！請去群組玩。", ephemeral=True)
-            return
-            
-        # 如果沒指定對手，預設跟蜂蜜水(機器人)打
+        # VS 真人必須在群組
+        if isinstance(interaction.channel, discord.DMChannel) and (not opponent or not opponent.bot):
+             # 這裡簡單判斷：私訊+對手不是機器人(或沒填) -> 阻擋
+             # 但如果 user 沒填 opponent，預設是機器人，所以下面會處理
+             pass
+
         if opponent is None:
             opponent = interaction.client.user
             
@@ -1577,30 +1780,32 @@ async def slash_mines(interaction: discord.Interaction, mode: app_commands.Choic
         # 判斷是不是跟機器人打 (PvE)
         if opponent.bot:
             if opponent.id != interaction.client.user.id:
-                # 避免跟其他機器人打 (因為其他機器人不會按按鈕)
                 await interaction.response.send_message("❌ 我只能跟你打，不能跟其他機器人打喔！", ephemeral=True)
                 return
             
-            # 直接開始 PvE
+            # 機器人對戰 (支援私訊與群組，但不掉寶)
             game_view = MinesweeperView(interaction.user, 'vs', opponent)
             await interaction.response.send_message(
-                f"⚔️ **【人機大戰】**\n{interaction.user.mention} 🆚 🤖 蜂蜜水\n由發起人先攻！",
+                f"⚔️ **【人機大戰】** (練習模式/不掉寶)\n{interaction.user.mention} 🆚 🤖 蜂蜜水\n由發起人先攻！",
                 view=game_view
             )
-            # 儲存 message 物件以便機器人回合使用
             game_view.message = await interaction.original_response()
             return
 
-        # 玩家對玩家 (PvP) - 需要發送挑戰書
+        # 玩家對玩家 (PvP) - 必須在群組
+        if isinstance(interaction.channel, discord.DMChannel):
+            await interaction.response.send_message("❌ 真人對決(掉寶模式)需要觀眾！請去群組玩。", ephemeral=True)
+            return
+
         challenge_view = ChallengeView(interaction.user, opponent)
         await interaction.response.send_message(
-            f"⚔️ **【決鬥邀請】**\n{interaction.user.mention} 向 {opponent.mention} 發起了踩地雷對決！\n敢接受嗎？",
+            f"⚔️ **【決鬥邀請】**\n{interaction.user.mention} 向 {opponent.mention} 發起了踩地雷對決！\n(獲勝者有機會獲得戰利品)\n敢接受嗎？",
             view=challenge_view
         )
         
         await challenge_view.wait()
         
-        if challenge_view.value: # 對方接受
+        if challenge_view.value: 
             game_view = MinesweeperView(interaction.user, 'vs', opponent)
             await interaction.edit_original_response(
                 content=f"⚔️ **【VS 對決開始】**\n{interaction.user.mention} 🆚 {opponent.mention}\n由發起人 <@{interaction.user.id}> 先攻！",
@@ -1608,7 +1813,6 @@ async def slash_mines(interaction: discord.Interaction, mode: app_commands.Choic
             )
             game_view.message = await interaction.original_response()
         else:
-            # 拒絕或超時，不做動作(保持原訊息)
             pass
 
     else:
@@ -1618,16 +1822,8 @@ async def slash_mines(interaction: discord.Interaction, mode: app_commands.Choic
         
         game_view = MinesweeperView(interaction.user, mode.value)
         
-        if mode.value == 'multi':
-            title = "💣 **【多人踩地雷】** (所有人都能按，誰踩到誰輸)"
-        else:
-            title = f"💣 **【個人挑戰】** (挑戰者：{interaction.user.mention})"
-            
-        await interaction.response.send_message(
-            f"{title}\n共 5 顆地雷，開始挖掘吧！",
-            view=game_view
-        )
-        # 儲存 message 物件
+        title = "💣 **【多人踩地雷】**" if mode.value == 'multi' else f"💣 **【個人挑戰】** (挑戰者：{interaction.user.mention})"
+        await interaction.response.send_message(f"{title}\n共 5 顆地雷，開始挖掘吧！", view=game_view)
         game_view.message = await interaction.original_response()
 
 @tree.command(name="ask", description="神奇海螺：問蜂蜜水一個 Yes/No 的問題")
