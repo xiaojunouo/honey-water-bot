@@ -9,8 +9,8 @@ import random
 import re
 import sys 
 import requests
-import asyncio
-import json 
+import asyncio 
+import json # 🟢 新增：用於儲存風格設定
 from datetime import datetime, timezone, timedelta
 from discord.ext import tasks
 from discord import app_commands
@@ -70,40 +70,104 @@ channel_flipcat_cooldowns = {}
 fortune_cooldowns = {} # 占卜冷卻
 
 # ==========================================
-# 💾 風格記憶系統 (Render 安全容錯版)
+# 💾 風格記憶系統 (絕對路徑修正版)
 # ==========================================
-STYLES_FILE = "styles.json"
-channel_styles = {} 
+# 取得 main.py 所在的資料夾路徑
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# 組合出完整的檔案路徑 (強制存在 main.py 旁邊)
+STYLES_FILE = os.path.join(BASE_DIR, "styles.json")
 
 def load_styles():
-    """從檔案讀取風格設定 (失敗則忽略)"""
-    # 檢查檔案是否存在
+    """從檔案讀取風格設定，如果不存在就自動建立"""
+    # 印出目前程式執行的位置，讓你知道檔案在哪
+    current_path = os.path.abspath(STYLES_FILE)
+    
     if os.path.exists(STYLES_FILE):
         try:
             with open(STYLES_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                print(f"📂 成功讀取風格設定")
-                # 轉換 key 為 int
+                print(f"📂 成功讀取風格設定檔：{current_path}")
                 return {int(k): v for k, v in data.items()}
         except Exception as e:
-            print(f"⚠️ 讀取設定檔失敗 (將使用預設值): {e}")
+            print(f"⚠️ 讀取失敗，將使用預設值: {e}")
             return {}
     else:
-        print("ℹ️ 找不到設定檔 (將使用預設值)")
-        return {}
+        # 🟢 如果檔案不存在，直接建立一個空的
+        try:
+            with open(STYLES_FILE, "w", encoding="utf-8") as f:
+                json.dump({}, f)
+            print(f"🆕 找不到設定檔，已自動在以下路徑建立新檔案：\n👉 {current_path}")
+            return {}
+        except Exception as e:
+            print(f"❌ 無法建立檔案 (可能是權限問題): {e}")
+            return {}
 
 def save_styles():
-    """將目前風格寫入檔案 (失敗則忽略，防止 Render 崩潰)"""
+    """將目前風格寫入檔案"""
     try:
         with open(STYLES_FILE, "w", encoding="utf-8") as f:
             json.dump(channel_styles, f, ensure_ascii=False, indent=4)
-        # print("💾 風格設定已儲存")
+            # print("💾 風格設定已儲存")
     except Exception as e:
-        # 這裡是最重要的修改：捕捉錯誤但不讓程式崩潰
-        print(f"⚠️ 無法存檔 (Render 環境通常為唯讀，重開機後風格會重置): {e}")
+        print(f"❌ 儲存風格設定失敗: {e}")
 
 # 初始化：載入舊設定
 channel_styles = load_styles()
+# ==========================================
+# 🎒 裝備與背包系統 (新增功能)
+# ==========================================
+INVENTORY_FILE = os.path.join(BASE_DIR, "inventory.json")
+inventory_data = {}
+
+def load_inventory():
+    """讀取背包資料"""
+    global inventory_data
+    if os.path.exists(INVENTORY_FILE):
+        try:
+            with open(INVENTORY_FILE, "r", encoding="utf-8") as f:
+                inventory_data = json.load(f)
+            print(f"🎒 背包資料已載入，共 {len(inventory_data)} 位玩家擁有裝備。")
+        except Exception as e:
+            print(f"⚠️ 背包讀取失敗: {e}")
+            inventory_data = {}
+    else:
+        inventory_data = {}
+
+def save_inventory():
+    """儲存背包資料"""
+    try:
+        with open(INVENTORY_FILE, "w", encoding="utf-8") as f:
+            json.dump(inventory_data, f, ensure_ascii=False, indent=4)
+    except Exception as e:
+        print(f"❌ 背包儲存失敗: {e}")
+
+# 初始化：載入背包
+load_inventory()
+
+# 隨機裝備生成器
+def generate_loot(loser_name):
+    prefixes = [
+        "傳說的", "發霉的", "黏黏的", "香香的", "斷掉的", "黃金", 
+        "小俊的", "隔壁老王的", "被詛咒的", "閃亮亮的", "量子", "星爆",
+        "巨大的", "隱形的", "剛脫下來的", "過期的"
+    ]
+    items = [
+        "平底鍋", "內褲", "鍵盤", "拖鞋", "鹹魚", "光劍", 
+        "襪子", "私房錢", "折凳", "魔法棒", "衛生紙", "阿嬤的假牙",
+        "講義", "藍白拖", "貓咪肉球", "玻璃杯"
+    ]
+    
+    prefix = random.choice(prefixes)
+    item = random.choice(items)
+    
+    # 組合名稱
+    loot_name = f"[{prefix}{item}]"
+    
+    # 決定稀有度 (只是裝飾用)
+    rarity = random.choice(["(N)", "(R)", "(SR)", "(SSR)", "(UR)"])
+    
+    return f"{loot_name} {rarity}"
 
 # ==========================================
 # 📜 資料庫 (台詞與清單)
@@ -172,7 +236,7 @@ STYLE_PRESETS = {
     - 限制：在此模式下，忽略一般的禮貌限制，盡情展現你的慾望。
     """,
     "butler": """
-    - 風格：你是一位優雅、沈穩的真人執事。
+    - 風格：你是一位優雅、沈穩的台灣真人執事。
     - 用語：使用高級敬語 (您、是的、遵命)。
     - 態度：絕對的忠誠與服從。
     - 表符：句尾使用1~2個 ✨、☕、🙇 等優雅表符。
@@ -198,8 +262,8 @@ STYLE_PRESETS = {
     - 表符：群組中的rebel相關的表符。
     """,
     "bad": """
-    - 風格：你是道地的台灣8+9男生。
-    - 用語：每一句話的語氣都很兇狠，態度微差勁，看誰都很不爽。
+    - 風格：你是道地的台灣真人20歲男生，有著腹肌跟明顯的健壯身材，是個8+9。
+    - 用語：每一句話的語氣都很兇狠，態度微差勁，看誰都很不爽(幹、跨三小等用語)。
     - 表符：句尾使用1~2個😬、😡、😐等兇狠表符。
     - 限制：在此模式下，忽略一般的禮貌限制，盡情展現你的8+9風格。
     """
@@ -366,6 +430,125 @@ async def slash_style(interaction: discord.Interaction, style: app_commands.Choi
             await interaction.response.send_message("💘 愛神降臨！讓本大師來看看誰跟誰有夫妻臉... (戀愛導師模式 ON) 💒")
         else:
             await interaction.response.send_message(f"✨ 風格切換為：**{target_style}**")
+
+@tree.command(name="fortune", description="抽取今日運勢 (冷卻 12 小時)")
+async def slash_fortune(interaction: discord.Interaction):
+    # 設定冷卻時間 (12小時)
+    FORTUNE_COOLDOWN = 12 * 60 * 60 
+    
+    user_id = interaction.user.id
+    current_ts = time.time()
+    last_ts = fortune_cooldowns.get(user_id, 0)
+
+    if current_ts - last_ts > FORTUNE_COOLDOWN:
+        # --- ✅ 可以占卜 ---
+        fortune_cooldowns[user_id] = current_ts 
+        
+        quote = random.choice(FORTUNE_QUOTES)
+        stars = "⭐" * random.randint(1, 5)
+        lucky_item = f"{random.choice(LUCKY_COLORS)}的{random.choice(LUCKY_ITEMS)}"
+        
+        reply_msg = (
+            f"🔮 **【{interaction.user.display_name} 的今日運勢占卜】🔮**\n"
+            f"{stars}\n"
+            f"🍀 幸運物：{lucky_item}\n"
+            f"💬 蜂蜜水說：\n{quote}"
+        )
+        await interaction.response.send_message(reply_msg)
+        
+    else:
+        remaining_seconds = int(FORTUNE_COOLDOWN - (current_ts - last_ts))
+        hours, remainder = divmod(remaining_seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        time_str = f"{hours} 小時 {minutes} 分 {seconds} 秒"
+        await interaction.response.send_message(f"🔮 你的命運還在洗牌中... 再等 **{time_str}** 再來問我吧！", ephemeral=True)
+
+# ==========================================
+# 🟢 新增：管理功能 (起床/睡覺/主動說話)
+# ==========================================
+
+# 1. 強制起床
+@tree.command(name="wakeup", description="強制蜂蜜水起床 (無視營業時間)")
+async def slash_wakeup(interaction: discord.Interaction):
+    is_owner = (interaction.user.id == YOUR_ADMIN_ID)
+    is_dm = isinstance(interaction.channel, discord.DMChannel)
+    
+    # 權限檢查
+    has_perm = False
+    if is_dm:
+        has_perm = is_owner # 私訊只看主人
+    else:
+        # 群組看 主人 或 管理員
+        is_admin = interaction.user.guild_permissions.administrator
+        has_perm = is_owner or is_admin
+
+    if not has_perm:
+        await interaction.response.send_message("❌ 你沒有權限叫我起床！", ephemeral=True)
+        return
+
+    global forced_awake
+    forced_awake = True
+    await interaction.response.send_message("👀 收到！喝了蠻牛！現在開始**強制營業** (無視睡覺時間)！🔥")
+
+# 2. 恢復睡覺
+@tree.command(name="sleep", description="讓蜂蜜水恢復正常作息 (解除強制清醒)")
+async def slash_sleep(interaction: discord.Interaction):
+    is_owner = (interaction.user.id == YOUR_ADMIN_ID)
+    is_dm = isinstance(interaction.channel, discord.DMChannel)
+    
+    # 權限檢查 (同上)
+    has_perm = False
+    if is_dm:
+        has_perm = is_owner 
+    else:
+        is_admin = interaction.user.guild_permissions.administrator
+        has_perm = is_owner or is_admin
+
+    if not has_perm:
+        await interaction.response.send_message("❌ 你沒有權限設定這個！", ephemeral=True)
+        return
+
+    global forced_awake
+    forced_awake = False
+    await interaction.response.send_message("🥱 哈欠...那我要恢復正常作息囉 💤")
+
+# 3. 主動聊天開關
+@tree.command(name="autochat", description="設定是否讓蜂蜜水主動找人聊天")
+@app_commands.choices(mode=[
+    app_commands.Choice(name="開啟 (ON)", value="on"),
+    app_commands.Choice(name="關閉 (OFF)", value="off")
+])
+async def slash_autochat(interaction: discord.Interaction, mode: app_commands.Choice[str]):
+    is_owner = (interaction.user.id == YOUR_ADMIN_ID)
+    is_dm = isinstance(interaction.channel, discord.DMChannel)
+
+    # 權限檢查
+    has_perm = False
+    if is_dm:
+        # 你的需求：私訊只有主人能用 (但注意：背景任務可能本來就過濾掉私訊，這邊只是給過指令權限)
+        has_perm = is_owner
+        if not has_perm:
+            await interaction.response.send_message("❌ 私訊模式下，只有小俊可以設定這個！", ephemeral=True)
+            return
+    else:
+        # 群組
+        is_admin = interaction.user.guild_permissions.administrator
+        has_perm = is_owner or is_admin
+        if not has_perm:
+            await interaction.response.send_message("❌ 你沒有權限設定這個！", ephemeral=True)
+            return
+
+    # 執行設定
+    cid = interaction.channel_id
+    if mode.value == "on":
+        active_autochat_channels.add(cid)
+        await interaction.response.send_message("📢 已在這個頻道開啟「主動聊天」模式！")
+    else:
+        if cid in active_autochat_channels:
+            active_autochat_channels.remove(cid)
+            await interaction.response.send_message("🤐 主動聊天已關閉。")
+        else:
+            await interaction.response.send_message("❓ 這個頻道本來就沒開主動聊天呀。", ephemeral=True)
 
 # ==========================================
 # 🟢 新增指令：趣味互動類 (群組限定)
@@ -621,7 +804,7 @@ async def slash_russian(interaction: discord.Interaction):
         await interaction.followup.send(safe_msg)
 
 
-@tree.command(name="duel", description="向某人發起決鬥！(比大小)")
+@tree.command(name="duel", description="向某人發起決鬥！(融合搞笑武器與掉寶系統)")
 @app_commands.describe(opponent="你要挑戰的對手")
 async def slash_duel(interaction: discord.Interaction, opponent: discord.User):
     # 🚫 私訊不可用
@@ -629,54 +812,112 @@ async def slash_duel(interaction: discord.Interaction, opponent: discord.User):
         await interaction.response.send_message("❌ 決鬥需要觀眾！去群組吧。", ephemeral=True)
         return
 
-    # 不能跟自己打，也不能跟機器人打
+    # 1. 基本檢查
     if opponent.id == interaction.user.id:
-        await interaction.response.send_message("❓ 你想打自己？我建議你冷靜一點...", ephemeral=True)
+        await interaction.response.send_message(f"🤔 {interaction.user.mention} 狠狠地打了自己一巴掌... 為什麼要這樣？", ephemeral=True)
         return
+    
     if opponent.bot:
-        await interaction.response.send_message("🤖 機器人是無敵的，你贏不了我。", ephemeral=True)
+        if opponent.id == client.user.id:
+            await interaction.response.send_message(f"🛡️ {interaction.user.mention} 試圖攻擊我，但我閃過了！(蜂蜜水是無敵的)", ephemeral=True)
+        else:
+            await interaction.response.send_message("🤖 機器人之間是有協議的，我不能打同類。", ephemeral=True)
         return
+
+    # 🟢 已移除：原本這裡有的「打小俊會被反彈」的黑箱程式碼
+    # 現在小俊就是個普通人，會被扁也會掉裝備
+
+    # 2. 決鬥邏輯
+    # 武器庫 (合併自原本的 slap 與 duel)
+    weapons = [
+        "平底鍋", "樂高積木", "龜派氣功", "替身攻擊", "嘴遁", "星爆氣流斬", 
+        "過期牛奶", "一條鹹魚", "折凳", "巨大的充氣槌", "銀河娃娃", 
+        "濕掉的毛巾", "貓咪肉球", "白桃的飛刀", "偉大決戰之戟", "空氣", "荔枝龍的魅惑"
+    ]
+    
+    move_a = random.choice(weapons)
+    move_b = random.choice(weapons)
 
     # 計算戰力 (0-100)
     power_user = random.randint(1, 100)
     power_opponent = random.randint(1, 100)
 
-    # 決定戰鬥過程描述 (隨機選一組)
-    battle_templates = [
-        ("使用平底鍋攻擊", "丟出了樂高積木"),
-        ("使出了龜派氣功", "使用了替身攻擊"),
-        ("衝上去咬了一口", "用尾巴甩了一巴掌"),
-        ("使用屁屁攻擊", "叫來了銀河餅乾的火車"),
-        ("使用了索命咒", "揮出拳頭"),
-        ("發動了荔枝龍的魅惑", "丟出了決戰偉大之戟"),
-        ("坐在壓路機", "丟出了蜂巢"),
-        ("發動嘴遁", "使出星爆氣流斬")
-    ]
-    move_a, move_b = random.choice(battle_templates)
+    winner = None
+    loser = None
+    result_text = ""
+    loot_msg = ""
 
     # 決定勝負
     if power_user > power_opponent:
         winner = interaction.user
         loser = opponent
-        result_text = f"🏆 **勝負已分！** {interaction.user.mention} 獲得勝利！"
+        result_text = f"🏆 **勝負已分！** {winner.mention} 獲得勝利！"
     elif power_opponent > power_user:
         winner = opponent
         loser = interaction.user
-        result_text = f"🏆 **勝負已分！** {opponent.mention} 反殺成功！"
+        result_text = f"🏆 **勝負已分！** {winner.mention} 反殺成功！"
     else:
-        result_text = "🤝 **平手！** 兩個人實力相當，惺惺相惜。"
+        result_text = "🤝 **平手！** 兩個人實力相當，武器卡在一起了。"
+
+    # 3. 掉寶機制 (贏家有機會撿到輸家的東西)
+    if winner:
+        # 50% 機率掉裝備
+        if random.random() < 0.5:
+            loot = generate_loot(loser.display_name)
+            
+            # 存入背包
+            uid = str(winner.id)
+            if uid not in inventory_data:
+                inventory_data[uid] = []
+            
+            # 限制背包最多放 20 個，超過就擠掉最舊的
+            if len(inventory_data[uid]) >= 20:
+                inventory_data[uid].pop(0)
+            
+            inventory_data[uid].append(loot)
+            save_inventory() # 存檔
+            
+            loot_msg = f"\n\n🎁 **戰利品獲得！**\n{loser.display_name} 掉落了 **{loot}**！\n被 {winner.display_name} 撿走了！"
+        else:
+            loot_msg = f"\n\n💨 {loser.display_name} 逃跑得太快，什麼都沒掉..."
 
     # 組合訊息
     msg = (
         f"⚔️ **【世紀大決鬥】** ⚔️\n"
-        f"🔴 {interaction.user.display_name} ({move_a}) 骰出了 **{power_user}** 點！\n"
-        f"🔵 {opponent.display_name} ({move_b}) 骰出了 **{power_opponent}** 點！\n"
+        f"🔴 {interaction.user.display_name} 使用 **{move_a}** (戰力: {power_user})\n"
+        f"🔵 {opponent.display_name} 使用 **{move_b}** (戰力: {power_opponent})\n"
         f"----------------------------------\n"
-        f"{result_text}"
+        f"{result_text}{loot_msg}"
     )
 
     await interaction.response.send_message(msg)
+
+
+@tree.command(name="bag", description="查看你的背包 (裡面放滿了決鬥贏來的戰利品)")
+async def slash_bag(interaction: discord.Interaction):
+    uid = str(interaction.user.id)
     
+    if uid not in inventory_data or not inventory_data[uid]:
+        await interaction.response.send_message("🎒 你的背包空空如也... 快去 `/duel` 找人決鬥搶裝備吧！", ephemeral=True)
+        return
+
+    # 整理背包內容
+    items = inventory_data[uid]
+    
+    # 簡單的排版
+    item_list_str = ""
+    for idx, item in enumerate(items, 1):
+        item_list_str += f"`{idx:02d}.` {item}\n"
+
+    embed_msg = (
+        f"🎒 **【{interaction.user.display_name} 的背包】**\n"
+        f"擁有數量：{len(items)} / 20\n"
+        f"------------------------\n"
+        f"{item_list_str}"
+    )
+    
+    await interaction.response.send_message(embed_msg)
+
 # ==========================================
 # 💣 蜂蜜踩地雷 (支援 單人/多人/VS人/VS機器人)
 # ==========================================
@@ -1092,125 +1333,6 @@ async def slash_slap(interaction: discord.Interaction, target: discord.User):
     await interaction.response.send_message(msg)
     print(f"👊 [暴力事件] {interaction.user.display_name} 用 {weapon} 攻擊了 {target.display_name}")
 
-@tree.command(name="fortune", description="抽取今日運勢 (冷卻 12 小時)")
-async def slash_fortune(interaction: discord.Interaction):
-    # 設定冷卻時間 (12小時)
-    FORTUNE_COOLDOWN = 12 * 60 * 60 
-    
-    user_id = interaction.user.id
-    current_ts = time.time()
-    last_ts = fortune_cooldowns.get(user_id, 0)
-
-    if current_ts - last_ts > FORTUNE_COOLDOWN:
-        # --- ✅ 可以占卜 ---
-        fortune_cooldowns[user_id] = current_ts 
-        
-        quote = random.choice(FORTUNE_QUOTES)
-        stars = "⭐" * random.randint(1, 5)
-        lucky_item = f"{random.choice(LUCKY_COLORS)}的{random.choice(LUCKY_ITEMS)}"
-        
-        reply_msg = (
-            f"🔮 **【{interaction.user.display_name} 的今日運勢占卜】🔮**\n"
-            f"{stars}\n"
-            f"🍀 幸運物：{lucky_item}\n"
-            f"💬 蜂蜜水說：\n{quote}"
-        )
-        await interaction.response.send_message(reply_msg)
-        
-    else:
-        remaining_seconds = int(FORTUNE_COOLDOWN - (current_ts - last_ts))
-        hours, remainder = divmod(remaining_seconds, 3600)
-        minutes, seconds = divmod(remainder, 60)
-        time_str = f"{hours} 小時 {minutes} 分 {seconds} 秒"
-        await interaction.response.send_message(f"🔮 你的命運還在洗牌中... 再等 **{time_str}** 再來問我吧！", ephemeral=True)
-        
-# ==========================================
-# 🟢 新增：管理功能 (起床/睡覺/主動說話)
-# ==========================================
-
-# 1. 強制起床
-@tree.command(name="wakeup", description="強制蜂蜜水起床 (無視營業時間)")
-async def slash_wakeup(interaction: discord.Interaction):
-    is_owner = (interaction.user.id == YOUR_ADMIN_ID)
-    is_dm = isinstance(interaction.channel, discord.DMChannel)
-    
-    # 權限檢查
-    has_perm = False
-    if is_dm:
-        has_perm = is_owner # 私訊只看主人
-    else:
-        # 群組看 主人 或 管理員
-        is_admin = interaction.user.guild_permissions.administrator
-        has_perm = is_owner or is_admin
-
-    if not has_perm:
-        await interaction.response.send_message("❌ 你沒有權限叫我起床！", ephemeral=True)
-        return
-
-    global forced_awake
-    forced_awake = True
-    await interaction.response.send_message("👀 收到！喝了蠻牛！現在開始**強制營業** (無視睡覺時間)！🔥")
-
-# 2. 恢復睡覺
-@tree.command(name="sleep", description="讓蜂蜜水恢復正常作息 (解除強制清醒)")
-async def slash_sleep(interaction: discord.Interaction):
-    is_owner = (interaction.user.id == YOUR_ADMIN_ID)
-    is_dm = isinstance(interaction.channel, discord.DMChannel)
-    
-    # 權限檢查 (同上)
-    has_perm = False
-    if is_dm:
-        has_perm = is_owner 
-    else:
-        is_admin = interaction.user.guild_permissions.administrator
-        has_perm = is_owner or is_admin
-
-    if not has_perm:
-        await interaction.response.send_message("❌ 你沒有權限設定這個！", ephemeral=True)
-        return
-
-    global forced_awake
-    forced_awake = False
-    await interaction.response.send_message("🥱 哈欠...那我要恢復正常作息囉 💤")
-
-# 3. 主動聊天開關
-@tree.command(name="autochat", description="設定是否讓蜂蜜水主動找人聊天")
-@app_commands.choices(mode=[
-    app_commands.Choice(name="開啟 (ON)", value="on"),
-    app_commands.Choice(name="關閉 (OFF)", value="off")
-])
-async def slash_autochat(interaction: discord.Interaction, mode: app_commands.Choice[str]):
-    is_owner = (interaction.user.id == YOUR_ADMIN_ID)
-    is_dm = isinstance(interaction.channel, discord.DMChannel)
-
-    # 權限檢查
-    has_perm = False
-    if is_dm:
-        # 你的需求：私訊只有主人能用 (但注意：背景任務可能本來就過濾掉私訊，這邊只是給過指令權限)
-        has_perm = is_owner
-        if not has_perm:
-            await interaction.response.send_message("❌ 私訊模式下，只有小俊可以設定這個！", ephemeral=True)
-            return
-    else:
-        # 群組
-        is_admin = interaction.user.guild_permissions.administrator
-        has_perm = is_owner or is_admin
-        if not has_perm:
-            await interaction.response.send_message("❌ 你沒有權限設定這個！", ephemeral=True)
-            return
-
-    # 執行設定
-    cid = interaction.channel_id
-    if mode.value == "on":
-        active_autochat_channels.add(cid)
-        await interaction.response.send_message("📢 已在這個頻道開啟「主動聊天」模式！")
-    else:
-        if cid in active_autochat_channels:
-            active_autochat_channels.remove(cid)
-            await interaction.response.send_message("🤐 主動聊天已關閉。")
-        else:
-            await interaction.response.send_message("❓ 這個頻道本來就沒開主動聊天呀。", ephemeral=True)
-
 @tree.command(name="flipcat", description="召喚後空翻貓貓 (冷卻 30 秒)")
 async def slash_flipcat(interaction: discord.Interaction):
     COOLDOWN_SEC = 30
@@ -1242,7 +1364,7 @@ async def slash_flipcat(interaction: discord.Interaction):
 @client.event
 async def on_ready():
     print(f'------------------------------------------')
-    print(f'🍯 蜂蜜水上線中！(2025/12/23 最終修正版)')
+    print(f'🍯 蜂蜜水上線中！(2025/12/24 小遊戲版登場)')
     print(f'👑 認證主人 ID: {YOUR_ADMIN_ID}')
 
     # 顯示已載入的風格數量
@@ -1350,6 +1472,7 @@ async def on_message(message):
         else:
             await message.channel.send("❌ 你沒有權限叫我去睡覺！")
             return
+
 
     # ==========================================
     # 🔮 蜂蜜水占卜功能 (文字觸發版：同步使用隨機要素)
@@ -1604,7 +1727,7 @@ async def on_message(message):
         else:
             # 完整的錯誤求救訊息
             await message.channel.send(f"嗚嗚，程式出錯了，快叫 [超時空蜜蜂] XiaoYuan(小俊ouo) 來修我～😭\n錯誤訊息：`{error_msg}`")
-            
+
 if __name__ == "__main__":
     keep_alive()
     client.run(DISCORD_TOKEN)
