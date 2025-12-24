@@ -689,12 +689,12 @@ async def slash_pick(interaction: discord.Interaction, options: str):
 # ==========================================
 # 🎮 趣味小遊戲 (無 AI 版 / 群組限定)
 # ==========================================
-@tree.command(name="slots", description="玩一把會動的蜂蜜拉霸機！(動態揭曉版)")
+@tree.command(name="slots", description="玩一把會動的蜂蜜拉霸機！(連線就掉寶)")
 async def slash_slots(interaction: discord.Interaction):
-    # 🟢 修改 1：移除了私訊限制檢查，現在哪裡都能玩！
+    # 🟢 修改：移除了私訊限制檢查，現在哪裡都能玩！
 
     # 拉霸機的圖案
-    emojis = ["🍎", "🍊", "🍇", "🍒", "💎", "7️⃣", "🍯"]
+    emojis = ["🍎", "🍊", "🍇", "🍒", "💎", 7️⃣", "🍯"]
     
     # 先決定好最終結果
     a = random.choice(emojis)
@@ -744,20 +744,38 @@ async def slash_slots(interaction: discord.Interaction):
 
     # 用來記錄後台狀態的變數
     log_status = "沒中" 
+    loot_msg = ""
+    log_loot = "無"
 
+    # 🟢 判斷：是否連線 (掉寶判定)
     if a == b == c:
+        # --- 掉寶執行區 ---
+        loot = generate_loot(interaction.user.display_name) # 生成裝備
+        
+        # 存入背包
+        uid = str(interaction.user.id)
+        if uid not in inventory_data: inventory_data[uid] = []
+        if len(inventory_data[uid]) >= 20: inventory_data[uid].pop(0) # 背包滿了擠掉舊的
+        inventory_data[uid].append(loot)
+        save_inventory()
+        
+        loot_msg = f"\n\n🎁 **恭喜中獎！**\n拉霸機吐出了一個 **{loot}**！(已存入背包)"
+        log_loot = loot
+        # ------------------
+
         if a == "7️⃣":
-            msg = f"{result_board}\n\n🚨 **JACKPOT!!!** 777 大獎！太神啦！🎉🎉🎉"
+            msg = f"{result_board}\n\n🚨 **JACKPOT!!!** 777 大獎！太神啦！🎉🎉🎉{loot_msg}"
             log_status = "JACKPOT (777)"
         elif a == "🍯":
-            msg = f"{result_board}\n\n🍯 **Sweet!** 吃到滿滿的蜂蜜！大滿足！🐻"
+            msg = f"{result_board}\n\n🍯 **Sweet!** 吃到滿滿的蜂蜜！大滿足！🐻{loot_msg}"
             log_status = "蜂蜜大獎"
         elif a == "💎":
-            msg = f"{result_board}\n\n💎 **Rich!** 發財了發財了！💰"
+            msg = f"{result_board}\n\n💎 **Rich!** 發財了發財了！💰{loot_msg}"
             log_status = "鑽石大獎"
         else:
-            msg = f"{result_board}\n\n✨ **恭喜中獎！** 三個一樣運氣不錯喔！"
+            msg = f"{result_board}\n\n✨ **恭喜中獎！** 三個一樣運氣不錯喔！{loot_msg}"
             log_status = "普通中獎 (三連)"
+
     elif a == b or b == c or a == c:
         msg = f"{result_board}\n\n🤏 **差一點點！** 有兩個一樣，再接再厲！"
         log_status = "小獎 (二連)"
@@ -769,11 +787,10 @@ async def slash_slots(interaction: discord.Interaction):
     # 更新成最終結果
     await interaction.edit_original_response(content=msg)
 
-    # 🟢 修改 2：後台回傳紀錄 (Print 到終端機)
-    # 格式：[拉霸紀錄] 使用者名稱 (ID) | 結果圖案 | 狀態
-    print(f"🎰 [拉霸紀錄] {interaction.user.display_name} (ID:{interaction.user.id}) 轉出了 [{a}|{b}|{c}] - {log_status}")
+    # 🟢 後台回傳紀錄 (包含掉寶資訊)
+    print(f"🎰 [拉霸紀錄] {interaction.user.display_name} (ID:{interaction.user.id}) 轉出了 [{a}|{b}|{c}] - {log_status} | 掉落: {log_loot}")
 
-@tree.command(name="russian", description="俄羅斯蜂蜜輪盤 (1/6 機率中彈)")
+@tree.command(name="russian", description="俄羅斯蜂蜜輪盤 (1/6 機率中彈，中彈會噴裝！)")
 async def slash_russian(interaction: discord.Interaction):
     # 🚫 私訊不可用
     if isinstance(interaction.channel, discord.DMChannel):
@@ -784,22 +801,39 @@ async def slash_russian(interaction: discord.Interaction):
     bullet = random.randint(1, 6)
     
     await interaction.response.send_message("🔫 拿起左輪手槍... 轉動彈巢... (緊張)")
-    time.sleep(1) # 增加一點點延遲感 (不會卡住整個機器人，因為時間很短)
+    await asyncio.sleep(1.0) # 使用 asyncio.sleep 避免卡頓
 
     if bullet == 1:
-        # 中彈效果
+        # --- 💀 中彈邏輯 ---
+        uid = str(interaction.user.id)
+        loss_msg = ""
+        log_loss = "無 (沒寶物)"
+
+        # 檢查背包有沒有東西可以扣
+        if uid in inventory_data and inventory_data[uid]:
+            # 隨機選一個倒楣的裝備
+            lost_item = random.choice(inventory_data[uid])
+            inventory_data[uid].remove(lost_item) # 移除
+            save_inventory() # 存檔
+            
+            loss_msg = f"\n💸 **遺產充公：**\n因為倒地不起，你背包裡的 **{lost_item}** 掉出來被沒收了！"
+            log_loss = lost_item
+
+        # 中彈訊息
         death_msg = (
             f"💥 **砰！**\n"
             f"{interaction.user.mention} 倒在了血泊中... (假裝的)\n"
-            f"蜂蜜水：哎呀，要幫忙叫救護車嗎？🚑"
+            f"蜂蜜水：哎呀，這清理起來很麻煩耶...🚑{loss_msg}"
         )
         await interaction.followup.send(death_msg)
+        print(f"🔫 [輪盤] {interaction.user.display_name} 中彈身亡 | 噴裝: {log_loss}")
+
     else:
-        # 安全效果
+        # --- 😅 安全邏輯 ---
         safe_msg = (
-            f"☁️ *喀嚓...*\n"
+            f☁️ *喀嚓...*\n"
             f"{interaction.user.mention} 運氣不錯，是空包彈！\n"
-            f"蜂蜜水：呼... 嚇死寶寶了。"
+            f"蜂蜜水：切... 沒好戲看了。"
         )
         await interaction.followup.send(safe_msg)
 
