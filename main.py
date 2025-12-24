@@ -677,51 +677,140 @@ async def slash_duel(interaction: discord.Interaction, opponent: discord.User):
 
     await interaction.response.send_message(msg)
 # ==========================================
-# 🎮 更多趣味指令 (無 AI / 純邏輯版)
+# 💣 更多遊戲 (踩地雷按鈕互動版 / 以及其他)
 # ==========================================
-@tree.command(name="mines", description="玩一場「踩地雷」！(點擊黑框框來玩)")
-async def slash_mines(interaction: discord.Interaction):
-    # 邏輯：生成一個 5x5 的網格，裡面藏著炸彈
-    # 使用 Discord 的 ||內容|| 語法來製作遮罩效果
-    
-    grid_size = 5
-    bomb_count = 5
-    
-    # 建立一個全空的盤面 (0 = 安全, 1 = 炸彈)
-    board = [0] * (grid_size * grid_size)
-    
-    # 隨機放炸彈
-    bomb_indices = random.sample(range(len(board)), bomb_count)
-    for index in bomb_indices:
-        board[index] = 1
-    
-    # 將盤面轉換成 Discord 文字
-    # 💣 = 炸彈, 🍯 = 安全(蜂蜜), 🟦 = 安全(普通)
-    view_text = ""
-    for i in range(grid_size):
-        row_text = ""
-        for j in range(grid_size):
-            index = i * grid_size + j
-            if board[index] == 1:
-                content = "💥" # 炸彈
-            else:
-                # 30% 機率是蜂蜜，其他是藍色方塊
-                content = "🍯" if random.random() < 0.3 else "🟦"
-            
-            # 加上防雷標籤 || ||
-            row_text += f"||{content}|| "
-        view_text += row_text + "\n"
-    
-    msg = (
-        f"💣 **【蜂蜜踩地雷】** 💣\n"
-        f"小心！這片區域埋了 **{bomb_count}** 顆炸彈！\n"
-        f"點擊下方的黑框框來探索：\n\n"
-        f"{view_text}"
-    )
-    
-    await interaction.response.send_message(msg)
-    print(f"💣 [遊戲紀錄] {interaction.user.display_name} 玩了一局踩地雷")
 
+# 定義踩地雷的按鈕
+class MineButton(discord.ui.Button):
+    def __init__(self, x, y, view_parent):
+        # 初始樣式：模糊的灰色 (secondary)
+        super().__init__(style=discord.ButtonStyle.secondary, label="⬜", row=y)
+        self.x = x
+        self.y = y
+        self.view_parent = view_parent
+
+    async def callback(self, interaction: discord.Interaction):
+        # 1. 權限檢查：只有發起遊戲的人能按
+        if interaction.user.id != self.view_parent.player_id:
+            await interaction.response.send_message(f"❌ 這是 {self.view_parent.player_name} 的局，你自己去開一局啦！", ephemeral=True)
+            return
+
+        # 2. 判斷遊戲是否已經結束
+        if self.view_parent.game_over:
+            return
+
+        # 3. 判斷是否踩到地雷
+        if self.view_parent.board[self.y][self.x] == -1:
+            # 💥 踩到地雷了！
+            self.style = discord.ButtonStyle.danger
+            self.label = "💥"
+            self.view_parent.game_over = True
+            
+            # 顯示所有地雷
+            await self.view_parent.reveal_all_mines(interaction, exploded=True)
+        else:
+            # 🍯 沒踩到，顯示周圍數字
+            mines_nearby = self.view_parent.board[self.y][self.x]
+            self.style = discord.ButtonStyle.success # 變成綠色
+            
+            if mines_nearby == 0:
+                self.label = "🍯" # 安全 (周圍沒雷)
+            else:
+                self.label = str(mines_nearby) # 顯示數字
+            
+            self.disabled = True # 按過就不能再按
+            self.view_parent.revealed_count += 1
+            
+            # 檢查是否勝利 (總格子 - 地雷數 = 已翻開數)
+            if self.view_parent.revealed_count == (25 - self.view_parent.bomb_count):
+                self.view_parent.game_over = True
+                await self.view_parent.reveal_all_mines(interaction, exploded=False)
+            else:
+                # 還沒結束，更新畫面
+                await interaction.response.edit_message(view=self.view_parent)
+
+
+# 定義遊戲的版面 (View)
+class MinesweeperView(discord.ui.View):
+    def __init__(self, player_id, player_name):
+        super().__init__(timeout=180) # 3分鐘沒玩自動失效
+        self.player_id = player_id
+        self.player_name = player_name
+        self.game_over = False
+        self.revealed_count = 0
+        self.bomb_count = 5 # 設定地雷數量
+        
+        # 初始化 5x5 版面 (0=空, -1=雷)
+        # 用二維陣列儲存數值
+        self.board = [[0 for _ in range(5)] for _ in range(5)]
+        self.init_board()
+
+        # 建立 25 個按鈕
+        for y in range(5):
+            for x in range(5):
+                self.add_item(MineButton(x, y, self))
+
+    def init_board(self):
+        # 隨機放地雷
+        count = 0
+        while count < self.bomb_count:
+            rx = random.randint(0, 4)
+            ry = random.randint(0, 4)
+            if self.board[ry][rx] != -1:
+                self.board[ry][rx] = -1
+                count += 1
+        
+        # 計算每個格子周圍的地雷數
+        for y in range(5):
+            for x in range(5):
+                if self.board[y][x] == -1:
+                    continue
+                # 檢查周圍 8 格
+                mines = 0
+                for dy in [-1, 0, 1]:
+                    for dx in [-1, 0, 1]:
+                        nx, ny = x + dx, y + dy
+                        if 0 <= nx < 5 and 0 <= ny < 5 and self.board[ny][nx] == -1:
+                            mines += 1
+                self.board[y][x] = mines
+
+    async def reveal_all_mines(self, interaction, exploded):
+        # 遊戲結束，翻開所有格子顯示答案
+        for item in self.children:
+            if isinstance(item, MineButton):
+                item.disabled = True
+                val = self.board[item.y][item.x]
+                if val == -1:
+                    item.label = "💣"
+                    if item.style != discord.ButtonStyle.danger: # 如果不是被踩爆的那顆
+                         item.style = discord.ButtonStyle.secondary
+                elif item.label == "⬜": # 沒翻開的安全格
+                    item.label = str(val) if val > 0 else "🍯"
+                    item.style = discord.ButtonStyle.secondary
+
+        # 決定結束訊息
+        if exploded:
+            msg = f"💥 **BOOM！** {self.player_name} 踩到地雷被炸飛了！(遊戲結束)"
+            print(f"💣 [踩地雷] {self.player_name} 輸了")
+        else:
+            msg = f"🎉 **恭喜通關！** {self.player_name} 成功找出了所有蜂蜜！太強了！"
+            print(f"💣 [踩地雷] {self.player_name} 贏了")
+        
+        self.stop() # 停止監聽
+        await interaction.response.edit_message(content=msg, view=self)
+
+
+@tree.command(name="mines", description="玩一場真實的「踩地雷」！(按鈕互動版)")
+async def slash_mines(interaction: discord.Interaction):
+    # 建立遊戲 View
+    view = MinesweeperView(interaction.user.id, interaction.user.display_name)
+    
+    await interaction.response.send_message(
+        f"💣 **【蜂蜜踩地雷】** 挑戰者：{interaction.user.mention}\n"
+        f"小心！裡面藏了 **5** 顆地雷！\n"
+        f"點擊按鈕來挖掘，數字代表周圍有幾顆雷。\n(只有你可以玩喔！)",
+        view=view
+    )
 
 @tree.command(name="ask", description="神奇海螺：問蜂蜜水一個 Yes/No 的問題")
 @app_commands.describe(question="你想問的問題")
