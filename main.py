@@ -804,10 +804,11 @@ async def slash_russian(interaction: discord.Interaction):
         await interaction.followup.send(safe_msg)
 
 # ==========================================
-# ⚔️ 決鬥系統 (支援 PvE / PvP / 掉寶限制)
+#⚔️ 決鬥系統 (支援 PvE / PvP / 掉寶限制 / 冷卻與紀錄)
 # ==========================================
 
 MAX_HP = 1000
+duel_cooldowns = {} # 🟢 用來記錄每個人的冷卻時間
 
 # 輔助：繪製血條
 def draw_hp_bar(current, max_hp=1000, length=10):
@@ -859,7 +860,7 @@ class DuelView(discord.ui.View):
             inline=True
         )
 
-        # 顯示最近 4 筆戰鬥紀錄 (增加行數以免 PvE 洗太快)
+        # 顯示最近 4 筆戰鬥紀錄
         recent_logs = "\n".join(self.logs[-4:])
         embed.add_field(name="📜 戰鬥紀錄", value=recent_logs if recent_logs else "...", inline=False)
         
@@ -875,7 +876,7 @@ class DuelView(discord.ui.View):
         return embed
 
     def calculate_damage(self, attacker, defender, is_special):
-        """計算單次傷害與 Log (回傳 damage, log_msg)"""
+        """計算單次傷害與 Log"""
         damage = 0
         log_msg = ""
         
@@ -886,7 +887,7 @@ class DuelView(discord.ui.View):
 
         if is_special:
             # 大招邏輯
-            if dice > 40: # 60% 命中 (稍微調高一點難度)
+            if dice > 40: # 60% 命中
                 damage = random.randint(250, 450)
                 move = random.choice(special_moves)
                 log_msg = f"🔥 **{attacker.display_name}** 使出技能 **{move}**！造成 **{damage}** 傷害！"
@@ -913,16 +914,13 @@ class DuelView(discord.ui.View):
     async def handle_attack(self, interaction, is_special=False):
         # 1. 權限檢查
         if interaction.user.id != self.turn:
-            # 如果是 PvE，只有 P1 能按
             if self.is_pve and interaction.user.id != self.p1.id:
                 await interaction.response.send_message("❌ 你是觀眾，請勿干擾比賽！", ephemeral=True)
                 return
-            # 如果是 PvP，看輪到誰
             if not self.is_pve and interaction.user.id != self.turn:
                 await interaction.response.send_message("⏳還沒輪到你！急什麼！", ephemeral=True)
                 return
         
-        # --- 玩家的回合 ---
         attacker = self.p1 if self.turn == self.p1.id else self.p2
         defender = self.p2 if self.turn == self.p1.id else self.p1
         
@@ -940,27 +938,21 @@ class DuelView(discord.ui.View):
         # 玩家攻擊結束後的處理
         if self.is_pve:
             # === 機器人的回合 (自動反擊) ===
-            # 這裡為了讓 UX 順暢，直接在同一次更新中計算機器人的傷害
-            # 這樣玩家按一下 = 雙方各打一拳 (或是你可以加 sleep 讓它延遲顯示，但會比較慢)
-            
             bot = self.p2
             player = self.p1
             
-            # 機器人隨機決定普攻或大招 (20% 機率大招)
             bot_use_special = (random.random() < 0.2)
             dmg_bot, msg_bot = self.calculate_damage(bot, player, bot_use_special)
             
             if dmg_bot > 0: self.hp[player.id] -= dmg_bot
-            self.logs.append(msg_bot) # 寫入 Log
+            self.logs.append(msg_bot) 
             
-            # 檢查機器人是否獲勝
             if self.hp[player.id] <= 0:
                 self.hp[player.id] = 0
                 self.winner = bot
                 await self.end_game(interaction, loser=player)
                 return
             
-            # 雙方都沒死，更新畫面 (因為是 PvE，Turn 永遠保持在 P1 身上讓玩家繼續按)
             await interaction.response.edit_message(embed=self.get_battle_embed(), view=self)
 
         else:
@@ -972,24 +964,28 @@ class DuelView(discord.ui.View):
     async def end_game(self, interaction, loser):
         winner = self.winner
         loot_msg = ""
-        
-        # 🟢 掉寶機制 (機器人對打不掉寶)
+        loot_log = "無 (機器人/沒掉)"
+
+        # 掉寶機制 (機器人不掉寶)
         if winner.bot or loser.bot:
             loot_msg = "\n🤖 **(機器人身上沒有任何裝備...)**"
         else:
             if random.random() < 0.5: # 50% 掉寶率
                 loot = generate_loot(loser.display_name)
-                # 存入背包
                 uid = str(winner.id)
                 if uid not in inventory_data: inventory_data[uid] = []
                 if len(inventory_data[uid]) >= 20: inventory_data[uid].pop(0)
                 inventory_data[uid].append(loot)
                 save_inventory()
                 loot_msg = f"\n🎁 **掉寶通知：**\n{loser.display_name} 噴出了 **{loot}**！\n被 {winner.display_name} 撿走了！"
+                loot_log = loot
             else:
                 loot_msg = f"\n💨 {loser.display_name} 逃得太快，什麼都沒留下。"
 
         self.logs.append(f"🏆 **勝負已分！** {winner.display_name} 獲得了勝利！")
+        
+        # 🟢 後台紀錄
+        print(f"⚔️ [決鬥紀錄/回合制] 贏家:{winner.display_name} vs 輸家:{loser.display_name} | 掉落:{loot_log}")
         
         # 鎖定所有按鈕
         for child in self.children:
@@ -1009,13 +1005,10 @@ class DuelView(discord.ui.View):
 
     @discord.ui.button(label="投降", style=discord.ButtonStyle.secondary, emoji="🏳️")
     async def surrender_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # PvE 只有玩家能投降
         if self.is_pve:
-             if interaction.user.id != self.p1.id:
-                 return
+             if interaction.user.id != self.p1.id: return
         else:
-            if interaction.user.id not in [self.p1.id, self.p2.id]:
-                return
+            if interaction.user.id not in [self.p1.id, self.p2.id]: return
             
         loser = interaction.user
         self.winner = self.p1 if loser.id == self.p2.id else self.p2
@@ -1025,7 +1018,7 @@ class DuelView(discord.ui.View):
         await self.end_game(interaction, loser=loser)
 
 
-@tree.command(name="duel", description="向某人發起決鬥！(1000血量制)")
+@tree.command(name="duel", description="向某人發起決鬥！(1000血量制, 冷卻2分鐘)")
 @app_commands.describe(opponent="對手 (不選則預設為機器人)", mode="模式：快速(秒殺) 或 回合制(手動)")
 @app_commands.choices(mode=[
     app_commands.Choice(name="回合制 (手動操作)", value="turn"),
@@ -1038,20 +1031,32 @@ async def slash_duel(interaction: discord.Interaction, mode: app_commands.Choice
 
     # 1. 檢查：私訊模式
     if isinstance(interaction.channel, discord.DMChannel):
-        # 🟢 私訊只能跟機器人打
         if opponent.id != client.user.id:
             await interaction.response.send_message("❌ 私訊模式下只能跟「蜂蜜水(我)」決鬥喔！若要跟朋友打請去群組。", ephemeral=True)
             return
     
-    # 2. 檢查：不能打自己
+    # 2. 檢查：基本邏輯
     if opponent.id == interaction.user.id:
         await interaction.response.send_message("❌ 為什麼要打自己？", ephemeral=True)
         return
-
-    # 3. 檢查：不能打其他機器人
     if opponent.bot and opponent.id != client.user.id:
         await interaction.response.send_message("❌ 我不想跟其他機器人打架。", ephemeral=True)
         return
+
+    # 🟢 3. 檢查：冷卻時間 (2分鐘 = 120秒)
+    COOLDOWN_SEC = 120
+    user_id = interaction.user.id
+    current_time = time.time()
+    
+    if user_id in duel_cooldowns:
+        last_played = duel_cooldowns[user_id]
+        if current_time - last_played < COOLDOWN_SEC:
+            remaining = int(COOLDOWN_SEC - (current_time - last_played))
+            await interaction.response.send_message(f"⏳ 決鬥也要休息的！請再等 **{remaining}** 秒。", ephemeral=True)
+            return
+
+    # 更新冷卻時間 (一旦進入遊戲就開始算)
+    duel_cooldowns[user_id] = current_time
 
     # === 模式 A：快速戰 (Quick) ===
     if mode.value == "quick":
@@ -1080,8 +1085,9 @@ async def slash_duel(interaction: discord.Interaction, mode: app_commands.Choice
         winner = interaction.user if hp[interaction.user] > 0 else opponent
         loser = opponent if winner == interaction.user else interaction.user
         
-        # 🟢 掉寶機制 (機器人不掉寶)
+        # 掉寶機制 (機器人不掉寶)
         loot_msg = ""
+        loot_log = "無 (機器人/沒掉)"
         if winner.bot or loser.bot:
             loot_msg = "💨 (機器人沒有掉落物)"
         else:
@@ -1093,8 +1099,12 @@ async def slash_duel(interaction: discord.Interaction, mode: app_commands.Choice
                 inventory_data[uid].append(loot)
                 save_inventory()
                 loot_msg = f"🎁 掉落：**{loot}**"
+                loot_log = loot
             else:
                 loot_msg = "💨 沒掉東西"
+        
+        # 🟢 後台紀錄
+        print(f"⚔️ [決鬥紀錄/快速] 贏家:{winner.display_name} vs 輸家:{loser.display_name} | 掉落:{loot_log}")
 
         msg = (
             f"⚡ **【快速決鬥結果】** ⚡\n"
