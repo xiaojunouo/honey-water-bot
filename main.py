@@ -879,8 +879,8 @@ class DuelView(discord.ui.View):
         damage = 0
         log_msg = ""
         
-        weapons = ["平底鍋", "折凳", "鹹魚", "鍵盤", "藍白拖", "巨大的充氣槌", "過期講義"]
-        special_moves = ["星爆氣流斬", "龜派氣功", "替身攻擊", "認真的一拳", "神之制裁"]
+        weapons = ["雜燴烤派的攪拌棒", "殭屍的腦袋", "玫瑰鹽的鹹魚", "風箭手的箭矢", "萊姆的排球", "金牛座的大槌", "銀河列車"]
+        special_moves = ["星爆阿阿阿阿", "召喚決戰偉大之戟", "進入虛無世界吧", "荔枝龍的魅惑", "超勇敢", "龍眼龍的怒吼"]
         
         dice = random.randint(1, 100)
 
@@ -889,7 +889,7 @@ class DuelView(discord.ui.View):
             if dice > 40: # 60% 命中 (稍微調高一點難度)
                 damage = random.randint(250, 450)
                 move = random.choice(special_moves)
-                log_msg = f"🔥 **{attacker.display_name}** 使出奧義 **{move}**！造成 **{damage}** 傷害！"
+                log_msg = f"🔥 **{attacker.display_name}** 使出技能 **{move}**！造成 **{damage}** 傷害！"
             else:
                 damage = 0
                 log_msg = f"💨 **{attacker.display_name}** 試圖放大招，結果腳滑跌倒了！(MISS)"
@@ -897,12 +897,12 @@ class DuelView(discord.ui.View):
             # 普通攻擊
             if dice > 90: # 暴擊
                 damage = random.randint(180, 250)
-                log_msg = f"⚡ **{attacker.display_name}** 骰出了 666！會心一擊造成 **{damage}** 傷害！"
+                log_msg = f"⚡ **{attacker.display_name}** 可可滴露獻上祝福！會心一擊造成 **{damage}** 傷害！"
             elif dice < 5: # 失誤
                 damage = 0
                 self_dmg = random.randint(10, 50)
                 self.hp[attacker.id] -= self_dmg
-                log_msg = f"😵 **{attacker.display_name}** 揮舞時打到自己的頭！扣了 {self_dmg} HP。"
+                log_msg = f"😵 **{attacker.display_name}** 安小卓亂入！扣了 {self_dmg} HP。"
             else: # 正常
                 damage = random.randint(60, 150)
                 weapon = random.choice(weapons)
