@@ -678,16 +678,16 @@ async def slash_duel(interaction: discord.Interaction, opponent: discord.User):
     await interaction.response.send_message(msg)
     
 # ==========================================
-# 💣 蜂蜜踩地雷 (支援 單人/多人/VS對戰)
+# 💣 蜂蜜踩地雷 (支援 單人/多人/VS人/VS機器人)
 # ==========================================
 
-# 1. 定義「接受挑戰」的介面
+# 1. 定義「接受挑戰」的介面 (VS 玩家用)
 class ChallengeView(discord.ui.View):
     def __init__(self, challenger, opponent):
-        super().__init__(timeout=60) # 60秒沒按就取消
+        super().__init__(timeout=60)
         self.challenger = challenger
         self.opponent = opponent
-        self.value = None # True=接受, False=拒絕
+        self.value = None
 
     @discord.ui.button(label="接受挑戰", style=discord.ButtonStyle.success)
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -695,8 +695,8 @@ class ChallengeView(discord.ui.View):
             await interaction.response.send_message("❌ 這不是給你的挑戰書！", ephemeral=True)
             return
         self.value = True
-        self.stop() # 停止監聽，回傳結果
-        await interaction.response.defer() # 避免互動失敗
+        self.stop()
+        await interaction.response.defer()
 
     @discord.ui.button(label="拒絕", style=discord.ButtonStyle.danger)
     async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -717,78 +717,55 @@ class MineButton(discord.ui.Button):
 
     async def callback(self, interaction: discord.Interaction):
         view = self.view_parent
-        
-        # --- 權限與回合檢查 ---
+        user = interaction.user
+
+        # --- A. 權限與回合檢查 ---
         if view.mode == 'solo':
-            if interaction.user.id != view.player_id:
+            if user.id != view.player_id:
                 await interaction.response.send_message(f"❌ 這是 {view.player_name} 的個人局！", ephemeral=True)
                 return
 
         elif view.mode == 'vs':
             # 檢查是否為參賽者
-            if interaction.user.id not in [view.player_id, view.opponent_id]:
+            if user.id not in [view.player_id, view.opponent_id]:
                 await interaction.response.send_message("❌ 這是私人決鬥，路人請勿插手！", ephemeral=True)
                 return
+            
+            # VS 機器人模式：如果是人類回合，但機器人正在思考中(防止連點)
+            if view.is_vs_bot and view.current_turn_id == view.opponent_id:
+                await interaction.response.send_message("🤖 蜂蜜水正在思考中... 請稍等！", ephemeral=True)
+                return
+
             # 檢查是否輪到這個人
-            if interaction.user.id != view.current_turn_id:
+            if user.id != view.current_turn_id:
                 await interaction.response.send_message(f"⏳還沒輪到你！現在是 <@{view.current_turn_id}> 的回合。", ephemeral=True)
                 return
 
         # (Multi 模式不檢查，誰都能按)
 
-        # --- 遊戲邏輯 ---
-        if view.game_over:
-            await interaction.response.send_message("❌ 遊戲已經結束啦！", ephemeral=True)
-            return
-
-        # 踩到地雷
-        if view.board[self.y][self.x] == -1:
-            self.style = discord.ButtonStyle.danger
-            self.label = "💥"
-            view.game_over = True
-            await view.reveal_all_mines(interaction, exploded=True, trigger_user=interaction.user)
-        else:
-            # 沒踩到
-            mines_nearby = view.board[self.y][self.x]
-            self.style = discord.ButtonStyle.success
-            self.label = "🍯" if mines_nearby == 0 else str(mines_nearby)
-            self.disabled = True
-            view.revealed_count += 1
-            
-            # 檢查勝利
-            if view.revealed_count == (25 - view.bomb_count):
-                view.game_over = True
-                await view.reveal_all_mines(interaction, exploded=False, trigger_user=interaction.user)
-            else:
-                # 遊戲繼續
-                content_update = ""
-                if view.mode == 'vs':
-                    # VS模式：切換回合
-                    if view.current_turn_id == view.player_id:
-                        view.current_turn_id = view.opponent_id
-                    else:
-                        view.current_turn_id = view.player_id
-                    content_update = f"⚔️ **【VS 對決】**\n現在輪到：<@{view.current_turn_id}>\n(小心！踩到雷就輸了)"
-                
-                # 如果是 VS 模式，需要更新文字告訴大家輪到誰
-                if content_update:
-                    await interaction.response.edit_message(content=content_update, view=view)
-                else:
-                    await interaction.response.edit_message(view=view)
+        # --- B. 處理玩家點擊邏輯 ---
+        # 先回應 interaction 避免超時，並更新按鈕狀態
+        await view.process_turn(interaction, self, user)
 
 
 # 3. 遊戲主體 View
 class MinesweeperView(discord.ui.View):
     def __init__(self, player, mode, opponent=None):
-        super().__init__(timeout=300)
+        super().__init__(timeout=300) # 5分鐘超時
         self.player_id = player.id
         self.player_name = player.display_name
-        self.mode = mode # 'solo', 'multi', 'vs'
+        self.mode = mode 
+        self.message = None # 用來存儲訊息物件，以便後續編輯
         
-        # VS 模式專用參數
+        # VS 模式參數
         self.opponent_id = opponent.id if opponent else None
         self.opponent_name = opponent.display_name if opponent else None
-        self.current_turn_id = self.player_id # 預設發起人先攻
+        self.current_turn_id = self.player_id 
+        self.is_vs_bot = False
+
+        # 判斷是否為 VS 機器人
+        if mode == 'vs' and opponent and opponent.bot:
+            self.is_vs_bot = True
 
         self.game_over = False
         self.revealed_count = 0
@@ -796,9 +773,15 @@ class MinesweeperView(discord.ui.View):
         self.board = [[0]*5 for _ in range(5)]
         self.init_board()
 
+        # 建立按鈕
         for y in range(5):
             for x in range(5):
                 self.add_item(MineButton(x, y, self))
+
+        # 🟢 Log: 遊戲開始紀錄
+        log_mode = f"VS {self.opponent_name}" if mode == 'vs' else mode.upper()
+        print(f"💣 [踩地雷/開始] {self.player_name} 開啟了 [{log_mode}] 模式")
+
 
     def init_board(self):
         count = 0
@@ -818,6 +801,112 @@ class MinesweeperView(discord.ui.View):
                         if 0<=nx<5 and 0<=ny<5 and self.board[ny][nx] == -1: mines+=1
                 self.board[y][x] = mines
 
+    async def on_timeout(self):
+        # 🟢 5分鐘超時處理
+        if not self.game_over:
+            self.game_over = True
+            for child in self.children:
+                child.disabled = True # 鎖死所有按鈕
+            
+            # 編輯訊息 (需要 try catch 避免訊息已被刪除)
+            try:
+                if self.message:
+                    await self.message.edit(content=f"⏳ **遊戲超時！** (已超過 5 分鐘)\n這局遊戲強制結束。", view=self)
+            except:
+                pass
+            
+            print(f"💣 [踩地雷/超時] {self.player_name} 的遊戲因超時而結束")
+
+
+    async def process_turn(self, interaction, button, user):
+        """處理單次點擊邏輯 (包含人類與機器人)"""
+        if self.game_over:
+            if interaction: await interaction.response.send_message("❌ 遊戲已結束", ephemeral=True)
+            return
+
+        # 1. 揭曉該格子
+        hit_bomb = False
+        if self.board[button.y][button.x] == -1:
+            button.style = discord.ButtonStyle.danger
+            button.label = "💥"
+            hit_bomb = True
+            self.game_over = True
+        else:
+            mines_nearby = self.board[button.y][button.x]
+            button.style = discord.ButtonStyle.success
+            button.label = "🍯" if mines_nearby == 0 else str(mines_nearby)
+            button.disabled = True
+            self.revealed_count += 1
+            if self.revealed_count == (25 - self.bomb_count):
+                self.game_over = True
+
+        # 2. 如果是人類操作，透過 interaction 更新畫面
+        if interaction:
+            if self.game_over:
+                await self.reveal_all_mines(interaction, exploded=hit_bomb, trigger_user=user)
+            else:
+                # 遊戲繼續：如果是 VS 模式，切換回合
+                content_update = None
+                if self.mode == 'vs':
+                    # 切換對象
+                    self.current_turn_id = self.opponent_id if self.current_turn_id == self.player_id else self.player_id
+                    next_player_mention = f"<@{self.current_turn_id}>"
+                    content_update = f"⚔️ **【VS 對決】**\n現在輪到：{next_player_mention}\n(小心！踩到雷就輸了)"
+
+                await interaction.response.edit_message(content=content_update, view=self)
+                
+                # 🟡 特殊邏輯：如果是 VS 機器人，且現在輪到機器人，觸發機器人行動
+                if not self.game_over and self.is_vs_bot and self.current_turn_id == self.opponent_id:
+                    # 這裡使用 asyncio.create_task 避免卡住
+                    asyncio.create_task(self.bot_move_logic())
+
+    async def bot_move_logic(self):
+        """機器人的 AI 邏輯"""
+        await asyncio.sleep(1.5) # 假裝思考時間
+
+        # 找出所有還沒按過的按鈕
+        available_buttons = [child for child in self.children if isinstance(child, MineButton) and not child.disabled]
+        
+        if not available_buttons or self.game_over:
+            return
+
+        # 隨機選一個 (AI 策略：純隨機，運氣流)
+        choice_btn = random.choice(available_buttons)
+        
+        # 機器人沒有 interaction，所以我們直接傳 None，並在最後用 self.message.edit 更新
+        # 虛擬一個 bot user 物件 (借用 opponent 的資訊)
+        bot_user_mock = type('obj', (object,), {'id': self.opponent_id, 'display_name': self.opponent_name, 'mention': f'<@{self.opponent_id}>'})
+        
+        # 執行點擊邏輯 (複製 process_turn 的核心，但改為 edit message)
+        hit_bomb = False
+        if self.board[choice_btn.y][choice_btn.x] == -1:
+            choice_btn.style = discord.ButtonStyle.danger
+            choice_btn.label = "💥"
+            hit_bomb = True
+            self.game_over = True
+        else:
+            mines_nearby = self.board[choice_btn.y][choice_btn.x]
+            choice_btn.style = discord.ButtonStyle.success
+            choice_btn.label = "🍯" if mines_nearby == 0 else str(mines_nearby)
+            choice_btn.disabled = True
+            self.revealed_count += 1
+            if self.revealed_count == (25 - self.bomb_count):
+                self.game_over = True
+
+        # 更新畫面
+        if self.game_over:
+            # 結算
+            await self.reveal_all_mines(None, exploded=hit_bomb, trigger_user=bot_user_mock)
+        else:
+            # 換回玩家
+            self.current_turn_id = self.player_id
+            content_update = f"⚔️ **【VS 對決】**\n🤖 蜂蜜水選了... 安全！\n現在輪到：<@{self.player_id}>\n(小心！踩到雷就輸了)"
+            try:
+                await self.message.edit(content=content_update, view=self)
+            except:
+                pass
+
+
     async def reveal_all_mines(self, interaction, exploded, trigger_user):
         # 翻開所有牌
         for item in self.children:
@@ -832,60 +921,92 @@ class MinesweeperView(discord.ui.View):
                     item.label = str(val) if val > 0 else "🍯"
                     item.style = discord.ButtonStyle.secondary
 
-        # 結算訊息邏輯
+        # 結算訊息
         msg = ""
+        log_result = ""
+        
         if self.mode == 'vs':
             if exploded:
-                # 觸發者輸了，另一方贏
                 winner = self.player_name if trigger_user.id == self.opponent_id else self.opponent_name
                 msg = f"💥 **BOOM！** {trigger_user.mention} 踩到地雷自爆了！\n🏆 **獲勝者：{winner}** (太神啦！)"
+                log_result = f"{trigger_user.display_name} 踩雷, {winner} 獲勝"
             else:
                 msg = f"🤝 **平手！**\n所有地雷都被找出來了，雙方握手言和！"
+                log_result = "平手"
+        
         elif self.mode == 'multi':
             if exploded:
                 msg = f"💣 **多人混戰結束**\n戰犯是 {trigger_user.mention}！他一腳踩爆了地雷！"
+                log_result = f"{trigger_user.display_name} 踩爆地雷"
             else:
                 msg = f"🎉 **大成功！**\n大家合力清除了所有地雷！"
+                log_result = "通關成功"
+        
         else: # solo
             if exploded:
                 msg = f"💥 **挑戰失敗...**\n{self.player_name} 踩到地雷了，幫QQ。"
+                log_result = "失敗"
             else:
                 msg = f"🎉 **挑戰成功！**\n{self.player_name} 太強了，完美閃避所有地雷！"
+                log_result = "成功"
 
-        self.stop()
-        await interaction.response.edit_message(content=msg, view=self)
+        # 🟢 Log: 遊戲結束紀錄
+        print(f"💣 [踩地雷/結束] 模式:{self.mode} | 結果:{log_result}")
 
-# 4. 註冊指令
+        # 傳送最終結果
+        if interaction:
+            await interaction.response.edit_message(content=msg, view=self)
+        elif self.message:
+            # 機器人觸發結束時，因為沒有 interaction，所以用 message edit
+            await self.message.edit(content=msg, view=self)
+
+
 @tree.command(name="mines", description="踩地雷遊戲 (單人/多人/VS對戰)")
-@app_commands.describe(opponent="VS模式的對手 (選其他模式請留空)")
+@app_commands.describe(opponent="VS模式的對手 (不填則預設為蜂蜜水)")
 @app_commands.choices(mode=[
     app_commands.Choice(name="個人挑戰 (Solo)", value="solo"),
     app_commands.Choice(name="多人混戰 (Multi)", value="multi"),
     app_commands.Choice(name="1v1 對決 (VS)", value="vs")
 ])
 async def slash_mines(interaction: discord.Interaction, mode: app_commands.Choice[str], opponent: discord.User = None):
-    # 檢查：如果選 VS 但沒選人
+    # VS 模式邏輯
     if mode.value == "vs":
-        # 🚫 私訊不支援 VS (因為無法 Tag 別人按按鈕)
         if isinstance(interaction.channel, discord.DMChannel):
             await interaction.response.send_message("❌ VS 模式需要觀眾！請去群組玩。", ephemeral=True)
             return
             
+        # 如果沒指定對手，預設跟蜂蜜水(機器人)打
         if opponent is None:
-            await interaction.response.send_message("❌ VS 模式必須指定對手！(請在 opponent 欄位選擇成員)", ephemeral=True)
-            return
-        if opponent.bot or opponent.id == interaction.user.id:
-            await interaction.response.send_message("❌ 你不能跟機器人或自己對決啦！", ephemeral=True)
-            return
+            opponent = interaction.client.user
             
-        # --- 發送挑戰書 ---
+        if opponent.id == interaction.user.id:
+            await interaction.response.send_message("❌ 你不能跟自己對決啦！", ephemeral=True)
+            return
+
+        # 判斷是不是跟機器人打 (PvE)
+        if opponent.bot:
+            if opponent.id != interaction.client.user.id:
+                # 避免跟其他機器人打 (因為其他機器人不會按按鈕)
+                await interaction.response.send_message("❌ 我只能跟你打，不能跟其他機器人打喔！", ephemeral=True)
+                return
+            
+            # 直接開始 PvE
+            game_view = MinesweeperView(interaction.user, 'vs', opponent)
+            await interaction.response.send_message(
+                f"⚔️ **【人機大戰】**\n{interaction.user.mention} 🆚 🤖 蜂蜜水\n由發起人先攻！",
+                view=game_view
+            )
+            # 儲存 message 物件以便機器人回合使用
+            game_view.message = await interaction.original_response()
+            return
+
+        # 玩家對玩家 (PvP) - 需要發送挑戰書
         challenge_view = ChallengeView(interaction.user, opponent)
         await interaction.response.send_message(
             f"⚔️ **【決鬥邀請】**\n{interaction.user.mention} 向 {opponent.mention} 發起了踩地雷對決！\n敢接受嗎？",
             view=challenge_view
         )
         
-        # 等待按鈕結果
         await challenge_view.wait()
         
         if challenge_view.value: # 對方接受
@@ -894,12 +1015,16 @@ async def slash_mines(interaction: discord.Interaction, mode: app_commands.Choic
                 content=f"⚔️ **【VS 對決開始】**\n{interaction.user.mention} 🆚 {opponent.mention}\n由發起人 <@{interaction.user.id}> 先攻！",
                 view=game_view
             )
+            game_view.message = await interaction.original_response()
         else:
-            # 對方拒絕或超時，訊息已在 View 處理或保持原樣
+            # 拒絕或超時，不做動作(保持原訊息)
             pass
 
     else:
         # Solo 或 Multi 模式
+        if opponent:
+            await interaction.response.send_message(f"⚠️ {mode.name} 模式不需要指定對手喔！已忽略對手欄位。", ephemeral=True)
+        
         game_view = MinesweeperView(interaction.user, mode.value)
         
         if mode.value == 'multi':
@@ -911,6 +1036,8 @@ async def slash_mines(interaction: discord.Interaction, mode: app_commands.Choic
             f"{title}\n共 5 顆地雷，開始挖掘吧！",
             view=game_view
         )
+        # 儲存 message 物件
+        game_view.message = await interaction.original_response()
 
 @tree.command(name="ask", description="神奇海螺：問蜂蜜水一個 Yes/No 的問題")
 @app_commands.describe(question="你想問的問題")
