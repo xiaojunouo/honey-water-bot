@@ -10,7 +10,7 @@ import re
 import sys 
 import requests
 import asyncio
-import json # 🟢 新增：用於儲存風格設定
+import json 
 from datetime import datetime, timezone, timedelta
 from discord.ext import tasks
 from discord import app_commands
@@ -506,25 +506,19 @@ async def slash_pick(interaction: discord.Interaction, options: str):
 # ==========================================
 # 🎮 趣味小遊戲 (無 AI 版 / 群組限定)
 # ==========================================
-
 @tree.command(name="slots", description="玩一把會動的蜂蜜拉霸機！(動態揭曉版)")
 async def slash_slots(interaction: discord.Interaction):
-    # 🚫 私訊不可用
-    if isinstance(interaction.channel, discord.DMChannel):
-        await interaction.response.send_message("❌ 賭場只開在群組裡！", ephemeral=True)
-        return
+    # 🟢 修改 1：移除了私訊限制檢查，現在哪裡都能玩！
 
     # 拉霸機的圖案
     emojis = ["🍎", "🍊", "🍇", "🍒", "💎", "7️⃣", "🍯"]
     
-    # 先決定好最終結果 (這樣才能知道有沒有中獎)
+    # 先決定好最終結果
     a = random.choice(emojis)
     b = random.choice(emojis)
     c = random.choice(emojis)
 
     # 1. 發送初始訊息 (轉動中)
-    # 使用 defer 是因為動畫需要時間，避免觸發「互動失敗」
-    # 但這裡我們想直接秀畫面，所以用 send_message
     await interaction.response.send_message(
         "🎰 **【蜂蜜大賭場】** 🎰\n"
         "------------------\n"
@@ -533,7 +527,6 @@ async def slash_slots(interaction: discord.Interaction):
         "🔥 拉霸轉動中..."
     )
 
-    # 為了讓動畫順暢，中間加一點延遲
     await asyncio.sleep(1.0) # 等 1 秒
 
     # 2. 揭曉第一格
@@ -558,7 +551,7 @@ async def slash_slots(interaction: discord.Interaction):
 
     await asyncio.sleep(1.0) # 最後一秒
 
-    # 4. 最終揭曉 (含判斷勝負)
+    # 4. 最終揭曉 & 判斷邏輯
     result_board = (
         "🎰 **【蜂蜜大賭場】** 🎰\n"
         "------------------\n"
@@ -566,23 +559,36 @@ async def slash_slots(interaction: discord.Interaction):
         "------------------"
     )
 
+    # 用來記錄後台狀態的變數
+    log_status = "沒中" 
+
     if a == b == c:
         if a == "7️⃣":
             msg = f"{result_board}\n\n🚨 **JACKPOT!!!** 777 大獎！太神啦！🎉🎉🎉"
+            log_status = "JACKPOT (777)"
         elif a == "🍯":
             msg = f"{result_board}\n\n🍯 **Sweet!** 吃到滿滿的蜂蜜！大滿足！🐻"
+            log_status = "蜂蜜大獎"
         elif a == "💎":
             msg = f"{result_board}\n\n💎 **Rich!** 發財了發財了！💰"
+            log_status = "鑽石大獎"
         else:
             msg = f"{result_board}\n\n✨ **恭喜中獎！** 三個一樣運氣不錯喔！"
+            log_status = "普通中獎 (三連)"
     elif a == b or b == c or a == c:
         msg = f"{result_board}\n\n🤏 **差一點點！** 有兩個一樣，再接再厲！"
+        log_status = "小獎 (二連)"
     else:
         fail_msgs = ["銘謝惠顧", "錢包空空...", "再試一次?", "幫QQ"]
         msg = f"{result_board}\n\n💨 **{random.choice(fail_msgs)}**"
+        log_status = "槓龜"
 
     # 更新成最終結果
     await interaction.edit_original_response(content=msg)
+
+    # 🟢 修改 2：後台回傳紀錄 (Print 到終端機)
+    # 格式：[拉霸紀錄] 使用者名稱 (ID) | 結果圖案 | 狀態
+    print(f"🎰 [拉霸紀錄] {interaction.user.display_name} (ID:{interaction.user.id}) 轉出了 [{a}|{b}|{c}] - {log_status}")
 
 @tree.command(name="russian", description="俄羅斯蜂蜜輪盤 (1/6 機率中彈)")
 async def slash_russian(interaction: discord.Interaction):
