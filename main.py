@@ -686,15 +686,17 @@ async def slash_pick(interaction: discord.Interaction, options: str):
         reason = "直覺告訴我的！"
 
     await interaction.followup.send(f"👈 **蜂蜜水幫你選：** `{selected}`\n\n💬 **理由：** {reason}")
+
 # ==========================================
 # 🎮 趣味小遊戲 (無 AI 版 / 群組限定)
 # ==========================================
+
 @tree.command(name="slots", description="玩一把會動的蜂蜜拉霸機！(連線就掉寶)")
 async def slash_slots(interaction: discord.Interaction):
     # 🟢 修改：移除了私訊限制檢查，現在哪裡都能玩！
 
     # 拉霸機的圖案
-    emojis = ["🍎", "🍊", "🍇", "🍒", "💎", 7️⃣", "🍯"]
+    emojis = ["🍎", "🍊", "🍇", "🍒", "💎", "7️⃣", "🍯"]
     
     # 先決定好最終結果
     a = random.choice(emojis)
@@ -831,7 +833,7 @@ async def slash_russian(interaction: discord.Interaction):
     else:
         # --- 😅 安全邏輯 ---
         safe_msg = (
-            f☁️ *喀嚓...*\n"
+            f"☁️ *喀嚓...*\n"
             f"{interaction.user.mention} 運氣不錯，是空包彈！\n"
             f"蜂蜜水：切... 沒好戲看了。"
         )
