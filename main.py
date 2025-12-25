@@ -159,10 +159,44 @@ def init_user(uid):
             "last_sign": "",    # 🟢 每日簽到日期
             "last_fortune": ""  # 🟢 每日占卜日期
         }
+# ==========================================
+# 🟢 新增：成就與稱號設定
+# ==========================================
+# 定義稱號的加成數值與描述
+ACHIEVEMENT_CONFIG = {
+    "初心者":    {"atk": 5,  "hp": 50,  "crit": 0, "desc": "剛踏上旅程的餅乾 (人人都有)"},
+    "大富翁":    {"atk": 10, "hp": 0,   "crit": 1, "desc": "持有超過 2000 蜂蜜幣"},
+    # --- 身分組對應稱號 ---
+    "加成者":    {"atk": 0,  "hp": 0,   "crit": 5, "desc": "【身分組】擁有加成者身分"},
+    "深藏不露":  {"atk": 0,  "hp": 150, "crit": 0, "desc": "【身分組】等級達到 Lv15"},
+    "特級大師":  {"atk": 20, "hp": 0,   "crit": 2, "desc": "【身分組】等級達到 Lv50"},
+    "超時空":    {"atk": 10, "hp": 100, "crit": 3, "desc": "【身分組】等級達到 Lv100"}
+}
+
+def init_user(uid):
+    """初始化使用者資料 (包含 4.5 成就系統)"""
+    uid = str(uid)
+    if uid not in user_data:
+        user_data[uid] = {
+            "coins": 0,
+            "inventory": [], 
+            "items": {},     
+            "cookie": {
+                "name": "我的餅乾",
+                "equip": None 
+            },
+            "achievements": ["初心者"], # 🟢 新增：已解鎖的稱號列表
+            "title": "初心者",          # 🟢 新增：目前配戴的稱號
+            "last_sign": "",    
+            "last_fortune": ""  
+        }
+    
     # 補丁：確保舊資料有新欄位
     if "items" not in user_data[uid]: user_data[uid]["items"] = {}
     if "last_sign" not in user_data[uid]: user_data[uid]["last_sign"] = ""
     if "last_fortune" not in user_data[uid]: user_data[uid]["last_fortune"] = ""
+    if "achievements" not in user_data[uid]: user_data[uid]["achievements"] = ["初心者"]
+    if "title" not in user_data[uid]: user_data[uid]["title"] = None
 
 def load_data():
     """讀取資料 (包含舊檔名遷移邏輯)"""
@@ -809,47 +843,40 @@ async def slash_pick(interaction: discord.Interaction, options: str):
 # ==========================================
 # 🟢 整合版 UI：我的餅乾 4.4 (即時刷新/身分組優化/一鍵修復)
 # ==========================================
-
-# --- 輔助函式：產生餅乾儀表板 Embed (彩色版) ---
+# --- 輔助函式：產生餅乾儀表板 Embed (含稱號顯示) ---
 def get_cookie_embed(user, guild_obj, notice=""):
     uid = str(user.id)
-    # 讀取資料
+    # 讀取資料 (這裡會自動同步稱號)
     stats = get_full_stats(user, guild_obj)
     coins = user_data[uid]["coins"]
     equip = user_data[uid]["cookie"]["equip"]
+    current_title = user_data[uid].get("title", "無")
     inv_list = user_data[uid]["inventory"]
     items_map = user_data[uid]["items"]
     max_inv = user_data[uid].get("max_inv", 20)
 
-    # 1. 決定 Embed 顏色與裝備文字
-    embed_color = 0xff9900 # 預設橘色
+    # 1. 決定 Embed 顏色
+    embed_color = 0xff9900
     equip_text = "(無)"
-    
     if equip:
         r = get_item_rarity(equip)
-        # 讀取設定檔中的顏色與圖示
         conf = RARITY_CONFIG.get(r, RARITY_CONFIG["(N)"])
         embed_color = conf["color"]
-        icon = conf["icon"]
-        equip_text = f"{icon} {equip}" # 讓穿著的裝備也顯示圖示
+        equip_text = f"{conf['icon']} {equip}"
     
-    # 2. 整理背包顯示 (加入彩色圖示)
+    # 2. 背包顯示
     inv_display = ""
     if inv_list:
         inv_display = f"📦 **容量: {len(inv_list)}/{max_inv}**\n"
-        
-        # 只顯示前 10 個，避免版面過長
         for item in inv_list[:10]:
             item_r = get_item_rarity(item)
             item_icon = RARITY_CONFIG.get(item_r, RARITY_CONFIG["(N)"])["icon"]
             inv_display += f"{item_icon} {item}\n"
-            
-        if len(inv_list) > 10: 
-            inv_display += f"...(還有 {len(inv_list)-10} 個)"
+        if len(inv_list) > 10: inv_display += f"...(還有 {len(inv_list)-10} 個)"
     else:
         inv_display = f"📦 **容量: 0/{max_inv}**\n(空)"
 
-    # 3. 整理道具顯示
+    # 3. 道具顯示
     item_display = ""
     if items_map:
         for name, count in items_map.items():
@@ -857,132 +884,70 @@ def get_cookie_embed(user, guild_obj, notice=""):
     else:
         item_display = "(無道具)"
 
-    # 4. 加入提示訊息
-    desc_text = ""
-    if notice:
-        desc_text = f"✅ **{notice}**\n"
+    desc_text = f"📛 **稱號**：{current_title}\n"
+    if notice: desc_text = f"✅ **{notice}**\n\n" + desc_text
 
-    # 建立 Embed (使用動態顏色)
-    embed = discord.Embed(title=f"🍪 {stats['name']} 的餅乾資訊", description=desc_text, color=embed_color)
+    embed = discord.Embed(title=f"🍪 {stats['name']} 的資訊", description=desc_text, color=embed_color)
     embed.add_field(name="💰 蜂蜜幣", value=f"${coins}", inline=True)
     embed.add_field(name="🛡️ 目前裝備", value=equip_text, inline=True)
     
-    # --- 數值與身分組顯示 ---
+    # 4. 戰鬥數值 (含稱號加成提示)
     stats_desc = (
         f"❤️ 血量: {stats['hp']}\n"
         f"⚔️ 攻擊: {stats['atk']}\n"
         f"🎯 會心: {stats['crit']}%"
     )
-    
-    if guild_obj:
-        role_names = []
-        if hasattr(user, "roles"):
-            role_names = [r.name for r in user.roles]
-        
-        bonus_tags = []
-        if any("超時空" in r for r in role_names):
-            bonus_tags.append("Lv100-目前未開放")
-        elif any("特級大師" in r for r in role_names):
-            bonus_tags.append("Lv50")
-        elif any("深藏不露" in r for r in role_names):
-            bonus_tags.append("Lv15")
-            
-        if any("加成者" in r for r in role_names):
-            bonus_tags.append("加成者")
-            
-        if bonus_tags:
-            stats_desc += f"\n(✨ 身分組加成: {', '.join(bonus_tags)})"
-                
+    if current_title and current_title in ACHIEVEMENT_CONFIG:
+        b = ACHIEVEMENT_CONFIG[current_title]
+        stats_desc += f"\n(✨稱號加成: HP+{b['hp']} / ATK+{b['atk']})"
+
     embed.add_field(name="📊 戰鬥數值", value=stats_desc, inline=False)
     
-    # 判斷是否私訊
-    is_dm = not guild_obj
-    if not is_dm:
+    if guild_obj:
         embed.add_field(name="🎒 裝備背包", value=inv_display, inline=True)
         embed.add_field(name="🧪 戰鬥道具", value=item_display, inline=True)
-        embed.set_footer(text="提示：穿上不同稀有度的裝備，卡片顏色會改變喔！使用下方按鈕來管理裝備或改名。")
+        embed.set_footer(text="提示：身分組可以解鎖特殊稱號，稱號有額外能力加成喔！")
     else:
-        embed.description = (embed.description or "") + "\n🔒 **私訊模式**：僅提供基本查看與改名。"
+        embed.description += "\n🔒 **私訊模式**：無法更新身分組成就。"
 
     return embed
 
-# 1. 改名輸入框 Modal (送出後刷新介面)
-class RenameModal(discord.ui.Modal, title="重新命名你的餅乾"):
-    name = discord.ui.TextInput(label="新的名字", placeholder="例如：超級無敵餅乾", max_length=20)
-
-    async def on_submit(self, interaction: discord.Interaction):
-        uid = str(interaction.user.id)
-        old_name = user_data[uid]["cookie"]["name"]
-        new_name = self.name.value
-        user_data[uid]["cookie"]["name"] = new_name
-        save_data()
-        
-        # 🟢 刷新原本的訊息
-        view: MyCookieDashboard = MyCookieDashboard(uid)
-        # 這裡需要傳入 guild 判斷 (從 interaction 取得)
-        embed = get_cookie_embed(interaction.user, interaction.guild, notice=f"已改名：{new_name}")
-        await interaction.response.edit_message(embed=embed, view=view)
-
-
-# 2. 手動換裝選單 (彩色圖示版)
-class EquipSelect(discord.ui.Select):
-    def __init__(self, user_inv):
+# --- 稱號選擇下拉選單 ---
+class TitleSelect(discord.ui.Select):
+    def __init__(self, user_achievements, current_title):
         options = []
-        # 限制前 25 個
-        safe_inv = user_inv[:25]
+        # 加入 "卸下稱號" 選項
+        options.append(discord.SelectOption(label="卸下稱號", value="none", description="不使用任何稱號", emoji="🚫"))
         
-        for idx, item in enumerate(safe_inv):
-            # 取得對應圖示
-            r = get_item_rarity(item)
-            icon = RARITY_CONFIG.get(r, RARITY_CONFIG["(N)"])["icon"]
-            
-            # 在選項標籤中加入圖示
-            options.append(discord.SelectOption(label=f"{icon} {item}", value=f"{idx}:{item}"))
-
-        if not options:
-            options.append(discord.SelectOption(label="背包沒裝備可穿", value="empty", default=True))
-            disabled = True
-        else:
-            disabled = False
-            
-        placeholder_text = "👕 選擇要穿上的裝備..."
-        if len(user_inv) > 25:
-            placeholder_text += " (僅顯示前25個)"
-
-        super().__init__(placeholder=placeholder_text, min_values=1, max_values=1, options=options, disabled=disabled)
+        for title in user_achievements:
+            if title in ACHIEVEMENT_CONFIG:
+                cfg = ACHIEVEMENT_CONFIG[title]
+                is_default = (title == current_title)
+                # 顯示加成在描述中
+                desc_str = f"HP+{cfg['hp']} ATK+{cfg['atk']} | {cfg['desc'][:20]}"
+                options.append(discord.SelectOption(label=title, value=title, description=desc_str, default=is_default, emoji="🏷️"))
+        
+        super().__init__(placeholder="🏷️ 選擇要配戴的稱號...", min_values=1, max_values=1, options=options)
 
     async def callback(self, interaction: discord.Interaction):
-        if self.values[0] == "empty": return
-        
-        val_parts = self.values[0].split(":", 1)
-        idx = int(val_parts[0])
-        new_equip_name = val_parts[1]
-        
         uid = str(interaction.user.id)
-        inv = user_data[uid]["inventory"]
-        current_equip = user_data[uid]["cookie"]["equip"]
-
-        # 檢查是否物品還在
-        if idx >= len(inv) or inv[idx] != new_equip_name:
-            await interaction.response.send_message("❌ 換裝失敗：物品狀態已改變，請重試。", ephemeral=True)
-            return
-
-        # 交換裝備
-        inv.pop(idx)
-        if current_equip:
-            inv.append(current_equip)
+        val = self.values[0]
+        
+        if val == "none":
+            user_data[uid]["title"] = None
+            msg = "已卸下稱號。"
+        else:
+            user_data[uid]["title"] = val
+            msg = f"已更換稱號為：**{val}**"
             
-        user_data[uid]["cookie"]["equip"] = new_equip_name
         save_data()
-
+        
         # 刷新介面
         view = MyCookieDashboard(uid)
-        embed = get_cookie_embed(interaction.user, interaction.guild, notice=f"已換上：{new_equip_name}")
+        embed = get_cookie_embed(interaction.user, interaction.guild, notice=msg)
         await interaction.response.edit_message(embed=embed, view=view)
 
-# ==========================================
-# 3. 主控台 View (更新版：加入商店與關閉按鈕)
-# ==========================================
+# --- 主控台 View (加入稱號按鈕) ---
 class MyCookieDashboard(discord.ui.View):
     def __init__(self, user_id):
         super().__init__(timeout=120)
@@ -998,7 +963,20 @@ class MyCookieDashboard(discord.ui.View):
     async def rename_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(RenameModal())
 
-    @discord.ui.button(label="一鍵最強", style=discord.ButtonStyle.primary, emoji="⚡", row=0)
+    @discord.ui.button(label="更換稱號", style=discord.ButtonStyle.primary, emoji="🏷️", row=0)
+    async def title_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        uid = self.user_id
+        # 確保有成就列表
+        if "achievements" not in user_data[uid]: user_data[uid]["achievements"] = ["初心者"]
+        achievements = user_data[uid]["achievements"]
+        current = user_data[uid].get("title")
+        
+        view = discord.ui.View()
+        view.add_item(TitleSelect(achievements, current))
+        
+        await interaction.response.edit_message(embed=get_cookie_embed(interaction.user, interaction.guild, notice="請選擇稱號..."), view=view)
+
+    @discord.ui.button(label="一鍵最強", style=discord.ButtonStyle.secondary, emoji="⚡", row=0)
     async def auto_equip_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if isinstance(interaction.channel, discord.DMChannel):
             await interaction.response.send_message("❌ 私訊模式下只能使用「改名」！", ephemeral=True)
@@ -1007,7 +985,6 @@ class MyCookieDashboard(discord.ui.View):
         uid = self.user_id
         inv = user_data[uid]["inventory"]
         current_equip = user_data[uid]["cookie"]["equip"]
-        
         score_map = {"(UR)": 5, "(SSR)": 4, "(SR)": 3, "(R)": 2, "(N)": 1}
 
         current_score = 0
@@ -1044,59 +1021,24 @@ class MyCookieDashboard(discord.ui.View):
     @discord.ui.button(label="手動換裝", style=discord.ButtonStyle.success, emoji="👕", row=1)
     async def manual_equip_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if isinstance(interaction.channel, discord.DMChannel):
-            await interaction.response.send_message("❌ 私訊模式下只能使用「改名」！", ephemeral=True)
+            await interaction.response.send_message("❌ 私訊模式下不開放換裝！", ephemeral=True)
             return
-            
         uid = self.user_id
         inv = user_data[uid]["inventory"]
-        
         view = discord.ui.View()
         view.add_item(EquipSelect(inv))
-        
         await interaction.response.edit_message(embed=get_cookie_embed(interaction.user, interaction.guild, notice="請選擇裝備..."), view=view)
 
-    @discord.ui.button(label="脫下裝備", style=discord.ButtonStyle.danger, emoji="🔻", row=1)
-    async def unequip_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if isinstance(interaction.channel, discord.DMChannel):
-            await interaction.response.send_message("❌ 私訊模式下只能使用「改名」！", ephemeral=True)
-            return
-
-        uid = self.user_id
-        current_equip = user_data[uid]["cookie"]["equip"]
-        inv = user_data[uid]["inventory"]
-        # 🟢 讀取動態上限
-        max_inv = user_data[uid].get("max_inv", 20)
-
-        if not current_equip:
-            await interaction.response.send_message("❌ 你現在本來就沒穿裝備！", ephemeral=True)
-            return
-
-        # 🟢 使用動態上限檢查
-        if len(inv) >= max_inv:
-            await interaction.response.send_message(f"🎒 **背包已滿 ({max_inv}/{max_inv})！** 無法脫下。(請先去賣東西)", ephemeral=True)
-            return
-
-        inv.append(current_equip)
-        user_data[uid]["cookie"]["equip"] = None
-        save_data()
-        
-        embed = get_cookie_embed(interaction.user, interaction.guild, notice=f"已脫下：{current_equip}")
-        await interaction.response.edit_message(embed=embed, view=self)
-
-    # 🟢 新增：前往商店按鈕
     @discord.ui.button(label="前往商店", style=discord.ButtonStyle.success, emoji="🏪", row=1)
     async def go_shop_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         uid = self.user_id
         coins = user_data[uid]["coins"]
-        # 切換到 MerchantView (購買模式)
         embed = get_merchant_embed(interaction.user, coins, mode="buy")
         view = MerchantView(uid)
         await interaction.response.edit_message(embed=embed, view=view)
 
-    # 🟢 新增：關閉按鈕
-    @discord.ui.button(label="關閉", style=discord.ButtonStyle.secondary, emoji="❌", row=2)
+    @discord.ui.button(label="關閉", style=discord.ButtonStyle.secondary, emoji="❌", row=1)
     async def close_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # 編輯原訊息，移除 Embed 與 View，顯示已關閉
         await interaction.response.edit_message(content="❌ **介面已關閉**", embed=None, view=None)
         self.stop()
 
@@ -1769,7 +1711,8 @@ duel_cooldowns = {}
 
 def get_full_stats(user, guild=None):
     """
-    計算使用者最終數值 (基礎 + 餅乾裝備 + 身分組加成)
+    計算使用者最終數值 (基礎 + 餅乾裝備 + 稱號加成)
+    同時自動檢測身分組以解鎖成就
     """
     uid = str(user.id)
     init_user(uid)
@@ -1787,10 +1730,11 @@ def get_full_stats(user, guild=None):
         stats["atk"] += bonus["atk"]
         stats["crit"] += bonus["crit"]
     
-    # 3. 身分組加成 (僅限群組內有效，私訊無效)
+    # 3. 成就與稱號系統 (自動同步身分組)
+    user_achievements = user_data[uid]["achievements"]
+    
+    # 3-1. 檢查條件並解鎖 (若有 Guild 物件)
     if guild:
-        # 🟢 優化：優先直接使用 user 物件的 roles (如果它是 Member)
-        # 這樣比 guild.get_member 更準確，不用怕抓不到快取
         role_names = []
         if hasattr(user, "roles"):
             role_names = [r.name for r in user.roles]
@@ -1798,31 +1742,37 @@ def get_full_stats(user, guild=None):
             member = guild.get_member(user.id)
             if member:
                 role_names = [r.name for r in member.roles]
-        
-        # 🔍 Debug: 如果你懷疑抓不到，可以把下面這行註解打開，看後台印出什麼
-        # print(f"🔍 [Debug] {user.display_name} 的身分組清單: {role_names}")
 
-        # === 判定邏輯 (改為寬鬆判定) ===
+        # 映射表：關鍵字 -> 稱號 Key
+        role_map = {
+            "加成者": "加成者",
+            "深藏不露": "深藏不露",
+            "特級大師": "特級大師",
+            "超時空": "超時空"
+        }
         
-        # 加成者: 會心 +10%
-        # (完全比對 "加成者" 或 身分組名稱包含 "加成者")
-        if any("加成者" in r for r in role_names):
-            stats["crit"] += 10
+        # 檢測身分組解鎖
+        for keyword, title_key in role_map.items():
+            if any(keyword in r for r in role_names):
+                if title_key not in user_achievements:
+                    user_achievements.append(title_key)
+                    
+        # 檢測金錢解鎖
+        if user_data[uid]["coins"] >= 2000 and "大富翁" not in user_achievements:
+            user_achievements.append("大富翁")
+            
+        user_data[uid]["achievements"] = user_achievements # 存回
+
+    # 3-2. 計算配戴稱號的加成
+    current_title = user_data[uid].get("title")
+    if current_title and current_title in ACHIEVEMENT_CONFIG:
+        t_bonus = ACHIEVEMENT_CONFIG[current_title]
+        stats["hp"] += t_bonus["hp"]
+        stats["atk"] += t_bonus["atk"]
+        stats["crit"] += t_bonus["crit"]
         
-        # 15等: 加血量 (+200)
-        # 只要名稱包含 "深藏不露" 就算，不用管 "15"
-        if any("深藏不露" in r for r in role_names):
-            stats["hp"] += 200
-            
-        # 50等: 加基礎攻擊 (+50)
-        # 只要名稱包含 "特級大師" 就算，不用管 "50"
-        if any("特級大師" in r for r in role_names):
-            stats["atk"] += 50
-            
-        # 100等: 加會心 (+5%)
-        # 只要名稱包含 "超時空" 就算，不用管 "100"
-        if any("超時空" in r for r in role_names):
-            stats["crit"] += 5
+        # 修改顯示名稱，加上稱號
+        stats["name"] = f"【{current_title}】{stats['name']}"
 
     return stats
 
@@ -1946,8 +1896,7 @@ EXECUTE_QUOTES = [
     "原諒我... 送你上路！",
     "這是慈悲的解脫... 喝啊啊啊！"
 ]
-
-# --- 決鬥主視窗 (更新 CD 與處決機制) ---
+# --- 決鬥主視窗 (更新版：大招必中 + 新掉寶率) ---
 class DuelView(discord.ui.View):
     def __init__(self, p1, p2, difficulty="normal", is_dm=False, guild=None):
         super().__init__(timeout=120)
@@ -1976,31 +1925,24 @@ class DuelView(discord.ui.View):
         self.immune_flags = {p1.id: False, p2.id: False}
         self.drop_rate_buff = {p1.id: False, p2.id: False}
 
-        # 🟢 新增：大招 CD 追蹤 (初始為 3)
+        # 大招 CD 追蹤
         self.skill_cd = {p1.id: 3, p2.id: 3}
-        
-        # 初始化按鈕狀態
         self.update_buttons()
 
     def update_buttons(self):
-        """根據當前輪到的玩家更新按鈕狀態 (顯示 CD)"""
         current_cd = self.skill_cd.get(self.turn, 0)
-        
         for child in self.children:
             if isinstance(child, discord.ui.Button):
-                # 判定是大招按鈕 (用 emoji 或 label 判斷)
                 if str(child.emoji) == "🔥": 
                     if current_cd > 0:
                         child.label = f"大招 (CD:{current_cd})"
                         child.disabled = True
-                        child.style = discord.ButtonStyle.secondary # 變灰色
+                        child.style = discord.ButtonStyle.secondary 
                     else:
                         child.label = "大招"
                         child.disabled = False
-                        child.style = discord.ButtonStyle.primary # 變藍色/紅色
+                        child.style = discord.ButtonStyle.primary 
                 
-                # 攻擊、防禦、道具按鈕在非自己回合不需鎖定(因為 callback 有檢查)，
-                # 但為了視覺清楚，若遊戲結束則全鎖
                 if self.winner:
                     child.disabled = True
 
@@ -2016,7 +1958,6 @@ class DuelView(discord.ui.View):
         if self.immune_flags[self.p1.id]: name1 += " (🔰無敵)"
         if self.immune_flags[self.p2.id]: name2 += " (🔰無敵)"
         
-        # 顯示詳細資訊 (包含 CD)
         cd1 = f"🔥CD:{self.skill_cd[self.p1.id]}" if self.skill_cd[self.p1.id] > 0 else "🔥READY"
         cd2 = f"🔥CD:{self.skill_cd[self.p2.id]}" if self.skill_cd[self.p2.id] > 0 else "🔥READY"
 
@@ -2028,15 +1969,14 @@ class DuelView(discord.ui.View):
         embed.add_field(name="📜 戰鬥紀錄", value=recent_logs if recent_logs else "...", inline=False)
         
         footer_text = ""
-        if self.defend_flags[self.p1.id]: footer_text += f"🛡️ {self.p1.display_name} 防禦架式中 | "
-        if self.defend_flags[self.p2.id]: footer_text += f"🛡️ {self.p2.display_name} 防禦架式中 | "
+        if self.defend_flags[self.p1.id]: footer_text += f"🛡️ {self.p1.display_name} 防禦中 | "
+        if self.defend_flags[self.p2.id]: footer_text += f"🛡️ {self.p2.display_name} 防禦中 | "
         
         if self.winner: 
             embed.set_footer(text=f"🏆 獲勝者：{self.winner.display_name}")
         else:
             turn_name = self.p1.display_name if self.turn == self.p1.id else self.p2.display_name
             embed.set_footer(text=f"{footer_text}👉 現在輪到：{turn_name}")
-            
         return embed
 
     def calculate_damage(self, attacker_id, defender_id, is_special):
@@ -2049,25 +1989,31 @@ class DuelView(discord.ui.View):
         
         dice = random.randint(1, 100)
 
-        # 1. 基礎傷害計算
+        # 1. 傷害計算
         if is_special:
-            # 🟢 新增：殘血判定 (血量低於 30%)
             is_execute = self.hp[defender_id] < (self.max_hp[defender_id] * 0.3)
             
-            # 命中判定 (維持 60% 命中)
-            if dice > 40: 
+            # 🟢 修正邏輯：
+            # 如果是玩家攻擊(不論PVE/PVP) -> 100% 命中
+            # 如果是機器人攻擊玩家 -> 60% 命中 (dice > 40)
+            
+            attacker_is_bot = (attacker_id == self.p2.id and self.is_pve)
+            hit_successful = True # 預設命中
+            
+            if attacker_is_bot and dice <= 40: # 機器人才會 Miss
+                hit_successful = False
+
+            if hit_successful: 
                 damage = int(base_dmg * random.uniform(2.5, 3.5))
-                
-                # 🟢 處決台詞邏輯
                 if is_execute:
                     skill_text = random.choice(EXECUTE_QUOTES)
-                    log_msg = f"🔥 **{attacker_name}** 眼中閃過紅光...「**{skill_text}**」\n🩸 給予了毀滅性的 **{damage}** 點傷害！(處決)"
+                    log_msg = f"🔥 **{attacker_name}** 眼中閃過紅光...「**{skill_text}**」\n🩸 造成毀滅性 **{damage}** 點傷害！(處決)"
                 else:
                     skill_text = random.choice(SPECIAL_SKILL_QUOTES)
-                    log_msg = f"🔥 **{attacker_name}** 大喊：「**{skill_text}**」\n💥 降下可可滴露祝福！造成 **{damage}** 點傷害！"
+                    log_msg = f"🔥 **{attacker_name}** 大喊：「**{skill_text}**」\n💥 降下祝福！造成 **{damage}** 點傷害！"
             else:
                 skill_text = random.choice(SPECIAL_SKILL_QUOTES)
-                log_msg = f"💨 **{attacker_name}** 大喊：「{skill_text}」...但安小卓亂入,打歪了！(MISS)"
+                log_msg = f"💨 **{attacker_name}** 大喊：「{skill_text}」...但打歪了！(MISS)"
         else:
             # 普攻邏輯
             atk_text = random.choice(NORMAL_ATTACK_QUOTES)
@@ -2091,9 +2037,9 @@ class DuelView(discord.ui.View):
             elif self.defend_flags[defender_id]:
                 if random.random() < 0.5:
                     damage = int(damage * 0.5)
-                    log_msg += " (🛡️對方防禦成功 -50%)"
+                    log_msg += " (🛡️防禦成功 -50%)"
                 else:
-                    log_msg += " (🛡️對方防禦失敗...破防！)"
+                    log_msg += " (🛡️防禦失敗...破防！)"
                 self.defend_flags[defender_id] = False 
                 
         return damage, log_msg
@@ -2106,17 +2052,14 @@ class DuelView(discord.ui.View):
         attacker = self.p1 if self.turn == self.p1.id else self.p2
         defender = self.p2 if self.turn == self.p1.id else self.p1
         
-        # 🟢 CD 檢查與更新
         if is_special:
             if self.skill_cd[attacker.id] > 0:
                 await interaction.response.send_message("⏳ 大招冷卻中！", ephemeral=True)
                 return
-            self.skill_cd[attacker.id] = 3 # 使用後重置為 3
+            self.skill_cd[attacker.id] = 3 
         else:
-            # 普通攻擊，CD - 1
             self.skill_cd[attacker.id] = max(0, self.skill_cd[attacker.id] - 1)
 
-        # 玩家攻擊
         dmg, msg = self.calculate_damage(attacker.id, defender.id, is_special)
         if dmg > 0: self.hp[defender.id] -= dmg
         self.logs.append(msg)
@@ -2124,16 +2067,15 @@ class DuelView(discord.ui.View):
         if self.hp[defender.id] <= 0:
             self.hp[defender.id] = 0
             self.winner = attacker
-            self.update_buttons() # 鎖定按鈕
+            self.update_buttons()
             await self.end_game(interaction, loser=defender, reason="kill")
             return
 
-        # PVE 邏輯
         if self.is_pve:
             bot = self.p2
             player = self.p1
             
-            # 🟢 機器人邏輯：如果 CD 好且機率觸發，就開大
+            # 機器人邏輯
             bot_use_special = False
             if self.skill_cd[bot.id] == 0 and random.random() < 0.4:
                 bot_use_special = True
@@ -2152,13 +2094,11 @@ class DuelView(discord.ui.View):
                 await self.end_game(interaction, loser=player, reason="kill")
                 return
             
-            # 機器人打完，還是輪到玩家
-            self.update_buttons() # 更新按鈕顯示玩家的 CD
+            self.update_buttons() 
             await interaction.response.edit_message(embed=self.get_battle_embed(), view=self)
         else:
-            # PVP 交換回合
             self.turn = defender.id
-            self.update_buttons() # 更新按鈕顯示對手的 CD
+            self.update_buttons()
             await interaction.response.edit_message(embed=self.get_battle_embed(), view=self)
 
     async def handle_defend(self, interaction):
@@ -2166,17 +2106,14 @@ class DuelView(discord.ui.View):
             await interaction.response.send_message("⏳ 還沒輪到你！", ephemeral=True)
             return
 
-        # 🟢 防禦也算一回合，CD - 1
         self.skill_cd[interaction.user.id] = max(0, self.skill_cd[interaction.user.id] - 1)
-
         self.defend_flags[interaction.user.id] = True
-        self.logs.append(f"🛡️ **{interaction.user.display_name}** 舉起盾牌！(下一次受傷有 50% 機率減半)")
+        self.logs.append(f"🛡️ **{interaction.user.display_name}** 舉起盾牌！")
 
         if self.is_pve:
             bot = self.p2
             player = self.p1
             
-            # 機器人回合 (也會減 CD)
             bot_use_special = False
             if self.skill_cd[bot.id] == 0 and random.random() < 0.4:
                 bot_use_special = True
@@ -2201,16 +2138,16 @@ class DuelView(discord.ui.View):
             self.turn = opponent_id
             self.update_buttons()
             await interaction.response.edit_message(embed=self.get_battle_embed(), view=self)
+
     async def end_game(self, interaction, loser, reason="normal"):
         winner = self.winner
         loot_msg = ""
         log_loot = "無"
 
-        # === 掉寶判斷邏輯 4.0 ===
+        # === 掉寶判斷邏輯 4.5 ===
         can_drop = False
         drop_chance = 0.5 
 
-        # 1. 基礎機率設定
         if winner.bot:
             loot_msg = "\n🤖 (被機器人打敗，什麼都沒拿到...)"
             can_drop = False
@@ -2218,29 +2155,27 @@ class DuelView(discord.ui.View):
             loot_msg = "\n🚫 (私訊練習模式不掉落戰利品)"
             can_drop = False
         else:
-            # 群組內，依難度或 PVP 設定機率
             can_drop = True
             if loser.bot: # PVE
-                if self.difficulty == "simple": drop_chance = 0.2
-                elif self.difficulty == "hard": drop_chance = 0.8
-                else: drop_chance = 0.5
+                # 🟢 修正：掉寶率 (簡單50% / 普通70% / 困難90%)
+                if self.difficulty == "simple": drop_chance = 0.5
+                elif self.difficulty == "hard": drop_chance = 0.9
+                else: drop_chance = 0.7
             else: # PVP
                 drop_chance = 0.5
 
-        # 2. 檢查是否有「掉落率100%護符」
         if self.drop_rate_buff[winner.id]:
-            if can_drop: # 必須要是可以掉寶的場合 (不能是私訊或輸給機器人)
+            if can_drop: 
                 drop_chance = 1.0
                 loot_msg += "\n🍀 **幸運護符生效！(機率提升至 100%)**"
 
-        # 3. 執行掉落
         if can_drop:
             if random.random() < drop_chance:
                 loot = generate_loot(loser.display_name)
                 init_user(str(winner.id))
                 u_inv = user_data[str(winner.id)]["inventory"]
                 
-                if len(u_inv) < 20:
+                if len(u_inv) < user_data[str(winner.id)].get("max_inv", 20):
                     u_inv.append(loot)
                     save_data()
                     loot_msg += f"\n🎁 **掉寶！**\n{loser.display_name} 噴出了 **{loot}**！"
@@ -2258,10 +2193,8 @@ class DuelView(discord.ui.View):
         else:
             self.logs.append(f"🏆 **勝負已分！** {winner.display_name} 獲勝！")
 
-        # 顯示後台 Log
-        print(f"⚔️ [決鬥紀錄] 勝: {winner.display_name} | 敗: {loser.display_name} | 掉寶: {log_loot}")
+        print(f"⚔️ [決鬥紀錄] 勝: {winner.display_name} | 掉寶: {log_loot}")
 
-        # 停用按鈕
         for child in self.children: child.disabled = True
         
         if interaction:
@@ -2282,7 +2215,6 @@ class DuelView(discord.ui.View):
 
     @discord.ui.button(label="道具", style=discord.ButtonStyle.success, emoji="🎒", row=1)
     async def item_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # 🟢 道具不消耗回合，所以不減 CD
         if interaction.user.id != self.turn:
             await interaction.response.send_message("⏳ 還沒輪到你！", ephemeral=True)
             return
@@ -2329,9 +2261,9 @@ class DuelChallengeView(discord.ui.View):
 
 
 # ==========================================
-# ⚡ 指令：我的餅乾決鬥 (4.0 更新版)
+# ⚡ 指令：我的餅乾決鬥 (4.5 更新版)
 # ==========================================
-@tree.command(name="我的餅乾決鬥", description="餅乾大亂鬥 (支援道具、防禦、身分組加成)")
+@tree.command(name="我的餅乾決鬥", description="餅乾大亂鬥 (支援稱號加成、道具、大招)")
 @app_commands.describe(opponent="對手 (不填則跟蜂蜜水打)", mode="模式", difficulty="跟機器人打的難度")
 @app_commands.choices(
     mode=[
@@ -2339,9 +2271,9 @@ class DuelChallengeView(discord.ui.View):
         app_commands.Choice(name="快速戰 (一鍵結算/不支援道具)", value="quick")
     ],
     difficulty=[
-        app_commands.Choice(name="簡單 (掉寶率20%)", value="simple"),
-        app_commands.Choice(name="普通 (掉寶率50%)", value="normal"),
-        app_commands.Choice(name="困難 (掉寶率80%)", value="hard")
+        app_commands.Choice(name="簡單 (掉寶率50%)", value="simple"),
+        app_commands.Choice(name="普通 (掉寶率70%)", value="normal"),
+        app_commands.Choice(name="困難 (掉寶率90%)", value="hard")
     ]
 )
 async def slash_duel(
@@ -2350,26 +2282,18 @@ async def slash_duel(
     difficulty: app_commands.Choice[str] = None, 
     opponent: discord.User = None
 ):
-    # 預設參數
     diff_val = difficulty.value if difficulty else "normal"
     is_dm = isinstance(interaction.channel, discord.DMChannel)
-    
-    # 判斷 Guild (用於讀取身分組)
     guild_obj = interaction.guild if not is_dm else None
 
-    # 1. 對手設定
     if opponent is None: opponent = interaction.client.user
-
-    # 2. 檢查：私訊只能打機器人
     if is_dm and not opponent.bot:
         await interaction.response.send_message("❌ 私訊模式下，只能跟蜂蜜水(機器人)決鬥喔！", ephemeral=True)
         return
-
     if opponent.id == interaction.user.id:
         await interaction.response.send_message("❌ 不能打自己！", ephemeral=True)
         return
 
-    # 3. 冷卻時間
     COOLDOWN_SEC = 120
     uid = interaction.user.id
     now = time.time()
@@ -2377,39 +2301,33 @@ async def slash_duel(
         await interaction.response.send_message(f"⏳ 休息一下，餅乾還在喘 ({int(COOLDOWN_SEC - (now - duel_cooldowns[uid]))}s)", ephemeral=True)
         return
     
-    # 4. 模式分支
     if mode.value == "quick":
-        # === 快速戰 (不支援道具，純數值比拚) ===
+        # === 快速戰 ===
         duel_cooldowns[uid] = now
-        
-        # 使用新的數值計算 (含身分組)
         s1 = get_full_stats(interaction.user, guild_obj)
         if opponent.bot:
             s2 = get_bot_stats(diff_val)
         else:
             s2 = get_full_stats(opponent, guild_obj)
         
-        # 簡單戰力計算
         power1 = s1["hp"] + s1["atk"] * 10
         power2 = s2["hp"] + s2["atk"] * 10
         
-        # 加點隨機波動
         score1 = power1 * random.uniform(0.8, 1.2)
         score2 = power2 * random.uniform(0.8, 1.2)
         
         winner = interaction.user if score1 > score2 else opponent
         loser = opponent if winner == interaction.user else interaction.user
-        
         loot_msg = "💨 沒掉東西"
         
-        # 掉寶率計算
+        # 🟢 修正：掉寶率 (50% / 70% / 90%)
         drop_chance = 0
         if winner.bot: drop_chance = 0
         elif is_dm: drop_chance = 0
         elif loser.bot: # PVE
-             if diff_val == "simple": drop_chance = 0.2
-             elif diff_val == "hard": drop_chance = 0.8
-             else: drop_chance = 0.5
+             if diff_val == "simple": drop_chance = 0.5
+             elif diff_val == "hard": drop_chance = 0.9
+             else: drop_chance = 0.7
         else: # PVP
              drop_chance = 0.5
              
@@ -2433,16 +2351,15 @@ async def slash_duel(
         )
 
     else:
-        # === 一般回合制 (支援所有新功能) ===
+        # === 回合制 ===
         if opponent.bot:
             duel_cooldowns[uid] = now
-            # 傳入 guild 參數
             view = DuelView(interaction.user, opponent, difficulty=diff_val, is_dm=is_dm, guild=guild_obj)
             await interaction.response.send_message(embed=view.get_battle_embed(), view=view)
             view.message = await interaction.original_response()
             return
 
-        # 真人對戰 (需要挑戰書)
+        # 真人對戰
         if difficulty is not None:
              await interaction.response.send_message("⚠️ 跟真人對打無法設定難度喔！(已忽略)", ephemeral=True)
              
@@ -2456,7 +2373,6 @@ async def slash_duel(
         
         if challenge_view.value is True:
             duel_cooldowns[uid] = now
-            # 雙人對打，傳入 Guild 讓雙方都吃到加成
             view = DuelView(interaction.user, opponent, is_dm=is_dm, guild=guild_obj)
             await interaction.edit_original_response(content="✅ **挑戰接受！戰鬥開始！**", embed=view.get_battle_embed(), view=view)
             view.message = await interaction.original_response()
